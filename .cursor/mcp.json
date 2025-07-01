@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "C:\\Users\\Gebruiker\\AppData\\Roaming\\npm\\mcp-server-supabase.cmd",
+      "args": [
+        "--project-ref=mlhrporbuhbgxrbrlpzz"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "sbp_6621600c48d00bdbb4065853a4e35833da250452"
+      }
+    }
+  }
+}

@@ -1,0 +1,453 @@
+"use client";
+
+import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import { User } from '@supabase/supabase-js';
+import { supabase, signIn, signOut, getCurrentUser } from '@/lib/supabase';
+
+interface UserRole {
+  role: string;
+}
+
+type AuthContextType = {
+  user: User | null;
+  isLoading: boolean;
+  isAdmin: boolean;
+  isRetailer: boolean;
+  login: (email: string, password: string) => Promise<{ error: any }>;
+  logout: () => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isRetailer, setIsRetailer] = useState(false);
+  
+  const router = useRouter();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    // Controleer de huidige gebruikerssessie
+    const checkUser = async () => {
+      setIsLoading(true);
+      try {
+        // First check for dev mode admin login
+        if (typeof window !== 'undefined') {
+          const devSignedIn = localStorage.getItem('dev-signed-in');
+          const devIsAdmin = localStorage.getItem('dev-is-admin');
+          
+          if (devSignedIn === 'true') {
+            // Create mock user with correct shape
+            const mockUser = {
+              id: 'mock-user-id',
+              email: 'admin@wasgeurtje.nl',
+              app_metadata: {},
+              user_metadata: {},
+              aud: 'authenticated',
+              created_at: new Date().toISOString(),
+            } as User;
+            
+            setUser(mockUser);
+            setIsAdmin(devIsAdmin === 'true');
+            setIsRetailer(false);
+            setIsLoading(false);
+            return; // Early return to skip Supabase calls
+          }
+        }
+        
+        // Regular user session check
+        const { user, error } = await getCurrentUser();
+        
+        if (error) {
+          console.error('Error getting current user:', error);
+          setUser(null);
+          setIsAdmin(false);
+          setIsRetailer(false);
+        } else {
+          setUser(user);
+          
+          if (user) {
+            // Check for mock user in development mode
+            if (user.id === 'mock-user-id') {
+              setIsAdmin(true);
+              setIsRetailer(false);
+            } else {
+              // Haal de gebruikersrollen op (admin, retailer)
+              const { data: roles } = await supabase
+                .from('user_roles')
+                .select('role')
+                .eq('user_id', user.id);
+              
+              if (roles) {
+                setIsAdmin(roles.some((r: UserRole) => r.role === 'admin'));
+                setIsRetailer(roles.some((r: UserRole) => r.role === 'retailer'));
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking user session:', error);
+        setUser(null);
+        setIsAdmin(false);
+        setIsRetailer(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkUser();
+
+    // Luister naar authenticatiewijzigingen with better error handling
+    let subscription: { unsubscribe: () => void } = {
+      unsubscribe: () => {}  // Default no-op
+    };
+    
+    try {
+      // Only set up subscription if supabase auth is available
+      if (supabase && supabase.auth) {
+        const { data } = supabase.auth.onAuthStateChange((event, session) => {
+          try {
+            if (event === 'SIGNED_IN' && session?.user) {
+              setUser(session.user);
+              
+              // Controleer hier de gebruikersrollen
+              const checkRoles = async () => {
+                try {
+                  const { data: roles } = await supabase
+                    .from('user_roles')
+                    .select('role')
+                    .eq('user_id', session.user.id);
+                  
+                  if (roles) {
+                    setIsAdmin(roles.some((r: UserRole) => r.role === 'admin'));
+                    setIsRetailer(roles.some((r: UserRole) => r.role === 'retailer'));
+                  }
+                } catch (roleError) {
+                  console.error('Error checking roles in auth state change:', roleError);
+                }
+              };
+              
+              checkRoles();
+            } else if (event === 'SIGNED_OUT') {
+              setUser(null);
+              setIsAdmin(false);
+              setIsRetailer(false);
+            }
+          } catch (eventHandlerError) {
+            console.error('Error in auth state change handler:', eventHandlerError);
+          }
+        });
+        
+        subscription = data.subscription;
+      } else {
+        console.warn('Skipping auth subscription setup - supabase.auth not available');
+      }
+    } catch (subscriptionError) {
+      console.error('Failed to set up auth state change listener:', subscriptionError);
+    }
+
+    return () => {
+      try {
+        subscription.unsubscribe();
+      } catch (error) {
+        console.error('Error unsubscribing from auth state changes:', error);
+      }
+    };
+  }, []);
+
+  // Bescherm admin routes
+  useEffect(() => {
+    // Skip protection check if still loading
+    if (isLoading) return;
+
+    // Direct localStorage check for development mode
+    if (typeof window !== 'undefined') {
+      const devSignedIn = localStorage.getItem('dev-signed-in');
+      const devIsAdmin = localStorage.getItem('dev-is-admin');
+      
+      // If we have a dev-mode signed in admin, allow dashboard access
+      if (pathname?.startsWith('/dashboard') && devSignedIn === 'true' && devIsAdmin === 'true') {
+        return; // Skip protection for admin dashboard in dev mode
+      }
+    }
+    
+    // Regular route protection
+    if (pathname?.startsWith('/dashboard') && !isAdmin) {
+      // Redirect als niet ingelogd als admin
+      if (!user) {
+        router.push('/login');
+      } else if (!isAdmin) {
+        // Gebruiker is ingelogd maar niet als admin
+        router.push('/');
+      }
+    }
+    
+    // Bescherm retailer routes
+    if (pathname?.startsWith('/retailer-dashboard') && !isRetailer) {
+      if (!user) {
+        router.push('/login');
+      } else if (!isRetailer) {
+        router.push('/');
+      }
+    }
+  }, [user, isAdmin, isRetailer, isLoading, pathname, router]);
+
+  // Check roles and redirect after login
+  const checkRolesAndRedirect = useCallback(async (userId: string) => {
+    try {
+      console.log('[AUTH CONTEXT] Checking roles for user:', userId);
+      
+      // In dev mode we mock this
+      if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
+        const isDevAdmin = localStorage.getItem('dev-is-admin') === 'true';
+        const isDevRetailer = localStorage.getItem('dev-is-retailer') === 'true';
+        
+		useEffect(() => {
+  // Lees de queryparameters
+  const urlParams = new URLSearchParams(window.location.search);
+  const skipRedirect = urlParams.get('skipRedirect') === 'true';
+
+  if (!skipRedirect) {
+    // Voer de standaard role-based redirect logica uit
+    if (isDevAdmin) {
+      console.log('[AUTH CONTEXT] Redirecting dev admin to dashboard');
+      router.push('/dashboard');
+    } else if (isDevRetailer) {
+      console.log('[AUTH CONTEXT] Redirecting dev retailer to retailer dashboard');
+      router.push('/retailer-dashboard');
+    } else {
+      console.log('[AUTH CONTEXT] Dev user has no specific role, redirecting to homepage');
+      router.push('/');
+    }
+  } else {
+    console.log('[AUTH CONTEXT] Redirects zijn overgeslagen vanwege skipRedirect parameter');
+  }
+}, [router, isDevAdmin, isDevRetailer]);
+
+		
+        setIsAdmin(isDevAdmin);
+        setIsRetailer(isDevRetailer);
+        
+        // Redirect based on role
+        if (isDevAdmin) {
+          console.log('[AUTH CONTEXT] Redirecting dev admin to dashboard');
+          router.push('/dashboard');
+        } else if (isDevRetailer) {
+          console.log('[AUTH CONTEXT] Redirecting dev retailer to retailer dashboard');
+          router.push('/retailer-dashboard');
+        } else {
+          // User without specific role
+          console.log('[AUTH CONTEXT] Dev user has no specific role, redirecting to homepage');
+          router.push('/');
+        }
+        
+        return;
+      }
+      
+      // In production, query the database for roles
+      const { data: roles, error: roleError } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId);
+      
+      if (roleError) {
+        throw roleError;
+      }
+      
+      if (roles && roles.length > 0) {
+        const isAdminUser = roles.some(r => r.role === 'admin');
+        const isRetailerUser = roles.some(r => r.role === 'retailer');
+        
+        console.log(`[AUTH CONTEXT] User roles - Admin: ${isAdminUser}, Retailer: ${isRetailerUser}`);
+        
+        setIsAdmin(isAdminUser);
+        setIsRetailer(isRetailerUser);
+        
+        // Redirect based on role
+        if (isAdminUser) {
+          console.log('[AUTH CONTEXT] Redirecting admin to dashboard');
+          router.push('/dashboard');
+        } else if (isRetailerUser) {
+          console.log('[AUTH CONTEXT] Redirecting retailer to retailer dashboard');
+          router.push('/retailer-dashboard');
+        } else {
+          // User without specific role
+          console.log('[AUTH CONTEXT] Gebruiker heeft geen specifieke rol, doorsturen naar homepage');
+          router.push('/');
+        }
+      } else {
+        // No roles found
+        console.log('[AUTH CONTEXT] Geen rollen gevonden voor gebruiker');
+        router.push('/');
+      }
+    } catch (roleError) {
+      console.error('[AUTH CONTEXT] Fout bij ophalen gebruikersrollen:', roleError);
+      // Still keep user logged in without specific roles
+      router.push('/');
+    }
+  }, [router]);
+
+  // Check if there's a logged in user on mount
+  useEffect(() => {
+    async function initializeAuth() {
+      try {
+        console.log('[AUTH CONTEXT] Initializing auth state');
+        setIsLoading(true);
+        
+        if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
+          const isDevSignedIn = localStorage.getItem('dev-signed-in') === 'true';
+          
+          if (isDevSignedIn) {
+            console.log('[AUTH CONTEXT] Development mode: user is signed in via localStorage');
+            
+            // Create mock user from localStorage
+            const mockUser = {
+              id: 'mock-user-id',
+              email: 'dev-user@example.com',
+              app_metadata: {},
+              user_metadata: {},
+              aud: 'authenticated',
+              created_at: new Date().toISOString(),
+            } as User;
+            
+            setUser(mockUser);
+            
+            // Check for roles and redirect if needed
+            await checkRolesAndRedirect('mock-user-id');
+          }
+          
+          setIsLoading(false);
+          return;
+        }
+        
+        // Production code
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+          console.log('[AUTH CONTEXT] Session found:', session.user.email);
+          setUser(session.user);
+          
+          // Check for roles and redirect if needed
+          await checkRolesAndRedirect(session.user.id);
+        }
+      } catch (error) {
+        console.error('[AUTH CONTEXT] Error initializing auth:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    initializeAuth();
+  }, [router, checkRolesAndRedirect]);
+
+  // Memoize login function to avoid rerenders causing recreation
+  const login = useCallback(async (email: string, password: string) => {
+    try {
+      console.log('[AUTH CONTEXT] Login poging voor:', email);
+      
+      const { data, error: signInError } = await signIn(email, password);
+      
+      if (signInError || !data?.user) {
+        console.error('[AUTH CONTEXT] Login fout:', signInError);
+        return { error: signInError || { message: 'Onbekende fout bij inloggen' } };
+      }
+      
+      console.log('[AUTH CONTEXT] Login succesvol voor:', data.user.email);
+      
+      // Store user info in state
+      setUser(data.user);
+      
+      // Check roles and redirect based on them
+      await checkRolesAndRedirect(data.user.id);
+      
+      return { error: null };
+    } catch (error) {
+      // Convert error to proper format with message
+      const errorMessage = error instanceof Error ? error.message : 'Onbekende fout tijdens inloggen';
+      console.error('[AUTH CONTEXT] Onverwachte fout in login-functie:', errorMessage, error);
+      
+      // Ensure we return a proper structured error object
+      return { 
+        error: { 
+          message: errorMessage,
+          code: 'UNEXPECTED_LOGIN_ERROR',
+          originalError: error
+        } 
+      };
+    }
+  }, [checkRolesAndRedirect]);  // Add checkRolesAndRedirect to dependencies
+
+  // Memoize logout function as well
+  const logout = useCallback(async () => {
+    // Clear any dev mode localStorage values
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('dev-signed-in');
+      localStorage.removeItem('dev-is-admin');
+    }
+    
+    await signOut();
+    setUser(null);
+    setIsAdmin(false);
+    setIsRetailer(false);
+    router.push('/');
+  }, [router]);
+
+  // Maak de admin gebruiker aan als deze nog niet bestaat (alleen voor demo)
+  useEffect(() => {
+    const createAdminUser = async () => {
+      if (!user && !isLoading) {
+        // Controleer of er al een admin gebruiker bestaat
+        const { data: admins } = await supabase
+          .from('user_roles')
+          .select('user_id')
+          .eq('role', 'admin');
+        
+        if (!admins || admins.length === 0) {
+          // Maak de admin gebruiker aan
+          const adminEmail = 'admin@wasgeurtje.nl';
+          const adminPassword = 'Admin123!';
+          
+          // Registreer de admin gebruiker
+          const { data, error } = await supabase.auth.signUp({
+            email: adminEmail,
+            password: adminPassword,
+          });
+          
+          if (!error && data.user) {
+            // Voeg de admin rol toe aan de gebruiker
+            await supabase
+              .from('user_roles')
+              .insert([{ user_id: data.user.id, role: 'admin' }]);
+            
+            console.log('Admin user created:', { email: adminEmail, password: adminPassword });
+          }
+        }
+      }
+    };
+    
+    // Uncomment om de admin gebruiker aan te maken (alleen voor development)
+    // createAdminUser();
+  }, [isLoading, user]);
+
+  const value = {
+    user,
+    isLoading,
+    isAdmin,
+    isRetailer,
+    login,
+    logout,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}; 

@@ -1,0 +1,224 @@
+# -------------------------------
+# FOLDER STRUCTURE
+# -------------------------------
+1 - Werk uitsluitend binnen de bestaande mappenstructuur in /src. Maak geen nieuwe 'app' folders aan.
+2 - Controleer of je je in de juiste "retail" folder bevindt vóór je "npm run dev" uitvoert.
+3 - Gebruik de README.md bestanden in elke directory als referentie voordat je aanpassingen maakt.
+
+# -------------------------------
+# STYLING RULES
+# -------------------------------
+4 - Gebruik altijd de Tailwind class 'text-gray-900' voor alle input, textarea en select elementen om leesbaarheid te garanderen.
+5 - Gebruik ook de Tailwind class 'text-gray-900' voor option elementen binnen select dropdowns om optimale leesbaarheid te garanderen.
+6 - Houd je aan de bestaande opmaakconventies en gebruik géén inline styles – werk uitsluitend met Tailwind classes of bestaande component wrappers.
+7 - Houd de styling van bestaande componenten in stand bij updates (zoals RetailerDirectory).
+8 - Garandeer voldoende kleurcontrast voor alle tekstuele elementen; gebruik minimaal 'text-gray-700' voor normale tekst en 'text-gray-800' voor tabellen. Gebruik nooit lichtere tekst (gray-400/500) op witte of lichtgekleurde achtergronden.
+
+# -------------------------------
+# DATA MANAGEMENT
+# -------------------------------
+9 - Gebruik localStorage voor tijdelijke dataopslag in development in plaats van hardcoded mock data arrays.
+10 - Gebruik géén mock data tenzij dit expliciet wordt gevraagd. Haal echte data op via fetch naar API-routes of gebruik localStorage als fallback.
+11 - Als een API ontbreekt, geef dan aan dat deze gemaakt moet worden in plaats van tijdelijke data te faken.
+
+# -------------------------------
+# ORDER MANAGEMENT
+# -------------------------------
+12 - Implementeer altijd betaalstatustracking met visuele indicatoren (groen voor betaald, geel voor in afwachting, rood voor mislukt).
+13 - Gebruik de `handlePayNow` functie voor het initiëren van Stripe betalingen vanuit de ordergeschiedenis, waarbij orderId en ordergegevens correct worden doorgegeven.
+14 - Synchroniseer ordergegevens tussen admin en retailer views door tracking codes en statusupdates te delen via localStorage.
+15 - Implementeer betaalstatusupdates met vervaldatum countdown voor factuurbetalingen en directe statusfeedback voor online betalingen.
+16 - Zorg voor consistente opslag van ordergegevens in localStorage volgens het OrderDetails interface, met ondersteuning voor ordergeschiedenis recovery.
+
+# -------------------------------
+# COMPONENT USAGE
+# -------------------------------
+17 - Hergebruik bestaande componenten zoals ProductItem, RetailerNavbar, BrandingStudio, enzovoort. Maak alleen nieuwe componenten als er een functionele reden is.
+18 - Houd componenten modulair en duidelijk gescheiden qua verantwoordelijkheden. Combineer geen logica's die niets met elkaar te maken hebben.
+
+# -------------------------------
+# PERFORMANCE & STRUCTURE
+# -------------------------------
+19 - Gebruik standaard Server Components in de /app directory. Voeg alleen 'use client' toe als het component state, event listeners of useEffect gebruikt.
+20 - Gebruik dynamische imports en lazy loading waar mogelijk om performance te verbeteren.
+21 - Gebruik het Next.js <Image> component voor optimalisatie van afbeeldingen en laadtijden.
+22 - Optimaliseer componenten zodat ze enkel renderen wanneer nodig (bijv. bij user interaction of scroll).
+
+# -------------------------------
+# CODE QUALITY & UITLEG
+# -------------------------------
+23 - Geef elke functie of component een korte uitleg met een comment direct erboven. Leg in begrijpelijke taal uit wat de functie doet en waarom deze bestaat.
+    Bijvoorbeeld:
+    // Haalt een lijst op van actieve retailers uit Supabase en filtert op status = 'verified'
+24 - Vermijd het gebruik van 'any' in TypeScript. Gebruik duidelijke types of generics voor veiligheid en leesbaarheid.
+25 - Houd functies klein en gericht. Als een functie meerdere verantwoordelijkheden heeft, splits deze dan op in logische onderdelen.
+
+# -------------------------------
+# NAMING & CONSISTENCY
+# -------------------------------
+26 - Gebruik camelCase voor variabelen en functies.
+27 - Gebruik PascalCase voor componentnamen en mapnamen binnen /components.
+28 - Houd bestandsnamen kort, duidelijk en consistent met bestaande conventies.
+
+# -------------------------------
+# DEVELOPMENT FLOW
+# -------------------------------
+29 - Gebruik `npm run dev` om de app lokaal te draaien. Zorg dat dit gebeurt in de juiste projectfolder.
+30 - Bij het testen van postcodevalidatie of stripe-functionaliteit, gebruik de bestaande endpoints in /app/api en respecteer de mappenstructuur.
+31 - Code moet direct functioneel én visueel werkend zijn binnen de bestaande setup, zonder aanvullende configuratie buiten wat in README-bestanden staat.
+32 - Start de server NIET automatisch op na elke wijziging. Laat dit aan de gebruiker over om handmatig te doen wanneer nodig.
+
+# -------------------------------
+# BONUS: UITLEG BIJ GENERATIE
+# -------------------------------
+33 - Voeg altijd een korte uitleg toe bij elke functie, component of API-route. Gebruik duidelijke comments in mensentaal om uit te leggen wat iets doet en waarvoor het bedoeld is.
+    Voorbeeld:
+    // Deze API-route verwerkt uploads van productafbeeldingen en slaat ze tijdelijk op in de /uploads-map
+
+# -------------------------------
+# FILE STRUCTURE (voor context)
+# -------------------------------
+
+start-app.ps1                           # PowerShell script for starting the app with proper environment
+start-app.bat                           # Batch script for starting the app with proper environment
+SETUP-README.md                         # Detailed setup instructions and troubleshooting
+src/
+├── app/                               # Next.js app directory (app router)
+│   ├── api/                           # API routes
+│   │   ├── email/                     # Email API endpoints
+│   │   │   ├── config/                # Email configuration endpoint
+│   │   │   │   └── route.ts           # Configure Mandrill API keys
+│   │   │   ├── templates/             # Email templates management
+│   │   │   │   └── route.ts           # CRUD operations for email templates
+│   │   │   └── test-template/         # Email template testing
+│   │   │       └── route.ts           # Send test emails with templates
+│   │   │
+│   │   ├── postcode/                  # Postcode API endpoint
+│   │   │   └── route.ts               # Handles postcode API requests (validation)
+│   │   │
+│   │   ├── setup/                     # Application setup
+│   │   │   ├── migration.ts           # Database migration functions
+│   │   │   └── route.ts               # Initialize database and services
+│   │   │
+│   │   ├── upload/                    # File upload API endpoint
+│   │   │   └── route.ts               # Handles image uploads for products
+│   │   │
+│   │   ├── retailers/                 # Retailer management endpoints
+│   │   │   └── route.ts               # CRUD operations for retailers
+│   │   │
+│   │   ├── settings/                  # Settings management endpoints
+│   │   │   └── route.ts               # CRUD operations for application settings
+│   │   │
+│   │   └── stripe/                    # Stripe API endpoints
+│   │       ├── config/                # Stripe configuration endpoint
+│   │       │   └── route.ts           # Configure Stripe API keys
+│   │       ├── create-checkout/       # Checkout session creation
+│   │       │   └── route.ts           # Create checkout sessions for products
+│   │       └── sync-product/          # Product synchronization
+│   │           └── route.ts           # Sync products between Supabase and Stripe
+│   │
+│   ├── contact/                       # Contact page
+│   │   └── page.tsx                   # Contact form page
+│   │
+│   ├── dashboard/                     # Admin dashboard
+│   │   ├── products/                  # Product management section
+│   │   │   ├── edit/                  # Edit product pages
+│   │   │   │   └── [id]/              # Dynamic route for product editing
+│   │   │   │       └── page.tsx       # Product edit page
+│   │   │   ├── new/                   # New product page
+│   │   │   │   └── page.tsx           # Create new product page
+│   │   │   └── page.tsx               # Products overview page
+│   │   ├── retailers/                 # Retailer management section
+│   │   │   └── page.tsx               # Page for managing retailer applications
+│   │   ├── settings/                  # Admin settings
+│   │   │   └── page.tsx               # Settings page (includes Stripe and email config, template management)
+│   │   └── page.tsx                   # Main dashboard homepage
+│   │
+│   ├── login/                         # Login page
+│   │   └── page.tsx                   # Retailer login functionality
+│   │
+│   ├── postcode-test/                 # Postcode API testing page
+│   │   └── page.tsx                   # Test interface for postcode validation
+│   │
+│   ├── register/                      # Retailer registration
+│   │   └── page.tsx                   # Registration flow page
+│   │
+│   ├── registratie-ontvangen/         # Registration confirmation
+│   │   └── page.tsx                   # Thank you page after registration
+│   │
+│   ├── retailer-activate/             # Retailer account activation
+│   │   └── [token]/                   # Dynamic route for activation tokens
+│   │       └── page.tsx               # Account activation page
+│   │
+│   ├── retailer-dashboard/            # Retailer portal
+│   │   ├── catalog/                   # Product catalog for retailers
+│   │   │   └── page.tsx               # Catalog page with shopping cart and ordering functionality
+│   │   ├── orders/                    # Orders management for retailers
+│   │   │   ├── confirmation/          # Order confirmation page after successful checkout
+│   │   │   │   └── page.tsx           # Order success page with payment status tracking & localStorage integration
+│   │   │   ├── layout.tsx             # Layout wrapper for orders section
+│   │   │   ├── OrderDetail.tsx        # Order details component that displays order info
+│   │   │   ├── page.tsx               # Order history overview page with payment status tracking, admin-retailer sync & handlePayNow
+│   │   │   ├── address/               # Address selection for checkout flow
+│   │   │   ├── payment/               # Payment method selection for checkout flow
+│   │   │   ├── canceled/              # Order cancellation handling page
+│   │   │   └── success/               # Alternative success page for redirections
+│   │   └── page.tsx                   # Retailer-specific dashboard
+│   │
+│   ├── layout.tsx                     # Global layout for all pages
+│   └── page.tsx                       # Homepage
+│
+├── components/                        # Reusable UI components
+│   ├── BackButton.tsx                 # Navigation back button
+│   ├── BrandingSettings.tsx           # Branding configuration component
+│   ├── BrandingStudio.tsx             # Enhanced branding component with live previews and advanced styling
+│   ├── Breadcrumbs.tsx                # Navigation breadcrumbs
+│   ├── CTA.tsx                        # Call to action component
+│   ├── EmailDiagnostics.tsx           # Email system diagnostic tools
+│   ├── EmailTemplateEditor.tsx        # Email template editing component
+│   ├── EmailTemplateList.tsx          # List of available email templates
+│   ├── Features.tsx                   # Product features showcase
+│   ├── Footer.tsx                     # Site footer
+│   ├── Hero.tsx                       # Hero section for homepage
+│   ├── Icons.tsx                      # SVG icon components
+│   ├── ImageUploader.tsx              # Image upload component with drag-and-drop
+│   ├── LogoUploader.tsx               # Logo upload component
+│   ├── Navbar.tsx                     # Navigation header
+│   ├── PostcodeCheck.tsx              # Postcode validation form 
+│   ├── PostcodeTest.tsx               # Postcode testing component
+│   ├── ProductEditor.tsx              # Product edit form component
+│   ├── ProductItem.tsx                # Reusable product card component with cart integration
+│   ├── ProductShowcase.tsx            # Product display component
+│   ├── RegistrationCTA.tsx            # Registration call-to-action
+│   ├── RegistrationForm.tsx           # Retailer registration form
+│   ├── RetailerDirectory.tsx          # Interactive retailer map and directory component with:
+│   │                                   # - Interactive Dutch map with retailer locations
+│   │                                   # - Real-time search with typing animation effect
+│   │                                   # - Full retailer modal list view on "120 officiële verkooppunten" click
+│   │                                   # - Strategic growth messaging for new retailers
+│   │                                   # - FOMO-inducing indicators for recent additions
+│   │                                   # - FOMO-inducing indicators for recent additions
+│   ├── RetailerNavbar.tsx             # Retailer portal navigation component
+│   ├── RetailerPackageInfo.tsx        # Information about retailer packages
+│   ├── RetailerTimeline.tsx           # Visual timeline of retailer onboarding
+│   ├── SocialProofSection.tsx         # Social proof and testimonials section
+│   └── TemplatePreview.tsx            # Email template preview with syntax highlighting
+│
+├── contexts/                          # React contexts for global state
+│   └── AuthContext.tsx                # Authentication context provider
+│
+├── lib/                               # Utility libraries and configs
+│   ├── email-debug.ts                 # Email debugging utilities
+│   ├── email-templates.ts             # Email template definitions and utilities
+│   ├── init-services.ts               # Service initialization functions
+│   ├── mail-service.ts                # Email sending functionality using Mandrill
+│   ├── settings-service.ts            # Application settings management with enhanced error handling
+│   ├── stripe.ts                      # Client-side Stripe implementation
+│   ├── stripe-server.ts               # Server-side Stripe implementation
+│   └── supabase.ts                    # Supabase client configuration with fallback to mock data
+│
+├── data/                              # Data files and models
+│   └── retailers.ts                   # Retailer database with full contact details
+│
+└── services/                          # External service integrations
+    └── postcodeApi.ts                 # Postcode.nl API client functions
