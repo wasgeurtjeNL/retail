@@ -30,7 +30,7 @@ if (Test-Path -Path ".env.local") {
     # Maak .env.local aan met mock credentials
     @"
 NEXT_PUBLIC_SUPABASE_URL=https://mock-wasgeurtje-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.mock-credentials-for-development
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 "@ | Out-File -FilePath ".env.local" -Encoding utf8
     
     Write-Host ".env.local bestand aangemaakt met mock credentials" -ForegroundColor Green

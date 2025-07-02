@@ -28,7 +28,7 @@ if exist .env.local (
     
     REM Maak .env.local aan met mock credentials
     echo NEXT_PUBLIC_SUPABASE_URL=https://mock-wasgeurtje-project.supabase.co> .env.local
-    echo NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.mock-credentials-for-development>> .env.local
+    echo NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here>> .env.local
     
     echo .env.local bestand aangemaakt met mock credentials
 )
