@@ -22,56 +22,74 @@
 11 - Als een API ontbreekt, geef dan aan dat deze gemaakt moet worden in plaats van tijdelijke data te faken.
 
 # -------------------------------
+# SUPABASE & DATABASE DEBUGGING
+# -------------------------------
+12 - Bij lege resultaten van API-calls, controleer ALTIJD eerst Row Level Security (RLS). Gebruik MCP tools om direct in Supabase te kijken: `SELECT COUNT(*) FROM tabel_naam` om te zien of data bestaat.
+13 - Voor admin dashboards: gebruik ALTIJD de service role client (`createClient` met `SUPABASE_SERVICE_ROLE_KEY`) om RLS te bypassen. Gebruik NOOIT `createRouteHandlerClient` voor admin-only endpoints.
+14 - Voor user-facing features: gebruik `createRouteHandlerClient` met RLS policies die correct zijn geconfigureerd per user role.
+15 - Voeg ALTIJD uitgebreide logging toe aan API-routes bij nieuwe features: `console.log('[API] Starting...', 'Found X records', 'Error:', error)`.
+16 - Bij nieuwe tabellen: controleer RLS status met `SELECT tablename, rowsecurity FROM pg_tables WHERE tablename = 'jouw_tabel'` en policies met `SELECT * FROM pg_policies WHERE tablename = 'jouw_tabel'`.
+17 - Test API-routes ALTIJD met verschillende user contexts (admin vs regular user) om RLS problemen vroeg te detecteren.
+
+# -------------------------------
 # ORDER MANAGEMENT
 # -------------------------------
-12 - Implementeer altijd betaalstatustracking met visuele indicatoren (groen voor betaald, geel voor in afwachting, rood voor mislukt).
-13 - Gebruik de `handlePayNow` functie voor het initiëren van Stripe betalingen vanuit de ordergeschiedenis, waarbij orderId en ordergegevens correct worden doorgegeven.
-14 - Synchroniseer ordergegevens tussen admin en retailer views door tracking codes en statusupdates te delen via localStorage.
-15 - Implementeer betaalstatusupdates met vervaldatum countdown voor factuurbetalingen en directe statusfeedback voor online betalingen.
-16 - Zorg voor consistente opslag van ordergegevens in localStorage volgens het OrderDetails interface, met ondersteuning voor ordergeschiedenis recovery.
+18 - Implementeer altijd betaalstatustracking met visuele indicatoren (groen voor betaald, geel voor in afwachting, rood voor mislukt).
+19 - Gebruik de `handlePayNow` functie voor het initiëren van Stripe betalingen vanuit de ordergeschiedenis, waarbij orderId en ordergegevens correct worden doorgegeven.
+20 - Synchroniseer ordergegevens tussen admin en retailer views door tracking codes en statusupdates te delen via localStorage.
+21 - Implementeer betaalstatusupdates met vervaldatum countdown voor factuurbetalingen en directe statusfeedback voor online betalingen.
+22 - Zorg voor consistente opslag van ordergegevens in localStorage volgens het OrderDetails interface, met ondersteuning voor ordergeschiedenis recovery.
 
 # -------------------------------
 # COMPONENT USAGE
 # -------------------------------
-17 - Hergebruik bestaande componenten zoals ProductItem, RetailerNavbar, BrandingStudio, enzovoort. Maak alleen nieuwe componenten als er een functionele reden is.
-18 - Houd componenten modulair en duidelijk gescheiden qua verantwoordelijkheden. Combineer geen logica's die niets met elkaar te maken hebben.
+23 - Hergebruik bestaande componenten zoals ProductItem, RetailerNavbar, BrandingStudio, enzovoort. Maak alleen nieuwe componenten als er een functionele reden is.
+24 - Houd componenten modulair en duidelijk gescheiden qua verantwoordelijkheden. Combineer geen logica's die niets met elkaar te maken hebben.
 
 # -------------------------------
 # PERFORMANCE & STRUCTURE
 # -------------------------------
-19 - Gebruik standaard Server Components in de /app directory. Voeg alleen 'use client' toe als het component state, event listeners of useEffect gebruikt.
-20 - Gebruik dynamische imports en lazy loading waar mogelijk om performance te verbeteren.
-21 - Gebruik het Next.js <Image> component voor optimalisatie van afbeeldingen en laadtijden.
-22 - Optimaliseer componenten zodat ze enkel renderen wanneer nodig (bijv. bij user interaction of scroll).
+25 - Gebruik standaard Server Components in de /app directory. Voeg alleen 'use client' toe als het component state, event listeners of useEffect gebruikt.
+26 - Gebruik dynamische imports en lazy loading waar mogelijk om performance te verbeteren.
+27 - Gebruik het Next.js <Image> component voor optimalisatie van afbeeldingen en laadtijden.
+28 - Optimaliseer componenten zodat ze enkel renderen wanneer nodig (bijv. bij user interaction of scroll).
 
 # -------------------------------
 # CODE QUALITY & UITLEG
 # -------------------------------
-23 - Geef elke functie of component een korte uitleg met een comment direct erboven. Leg in begrijpelijke taal uit wat de functie doet en waarom deze bestaat.
+29 - Geef elke functie of component een korte uitleg met een comment direct erboven. Leg in begrijpelijke taal uit wat de functie doet en waarom deze bestaat.
     Bijvoorbeeld:
     // Haalt een lijst op van actieve retailers uit Supabase en filtert op status = 'verified'
-24 - Vermijd het gebruik van 'any' in TypeScript. Gebruik duidelijke types of generics voor veiligheid en leesbaarheid.
-25 - Houd functies klein en gericht. Als een functie meerdere verantwoordelijkheden heeft, splits deze dan op in logische onderdelen.
+30 - Vermijd het gebruik van 'any' in TypeScript. Gebruik duidelijke types of generics voor veiligheid en leesbaarheid.
+31 - Houd functies klein en gericht. Als een functie meerdere verantwoordelijkheden heeft, splits deze dan op in logische onderdelen.
 
 # -------------------------------
 # NAMING & CONSISTENCY
 # -------------------------------
-26 - Gebruik camelCase voor variabelen en functies.
-27 - Gebruik PascalCase voor componentnamen en mapnamen binnen /components.
-28 - Houd bestandsnamen kort, duidelijk en consistent met bestaande conventies.
+32 - Gebruik camelCase voor variabelen en functies.
+33 - Gebruik PascalCase voor componentnamen en mapnamen binnen /components.
+34 - Houd bestandsnamen kort, duidelijk en consistent met bestaande conventies.
 
 # -------------------------------
 # DEVELOPMENT FLOW
 # -------------------------------
-29 - Gebruik `npm run dev` om de app lokaal te draaien. Zorg dat dit gebeurt in de juiste projectfolder.
-30 - Bij het testen van postcodevalidatie of stripe-functionaliteit, gebruik de bestaande endpoints in /app/api en respecteer de mappenstructuur.
-31 - Code moet direct functioneel én visueel werkend zijn binnen de bestaande setup, zonder aanvullende configuratie buiten wat in README-bestanden staat.
-32 - Start de server NIET automatisch op na elke wijziging. Laat dit aan de gebruiker over om handmatig te doen wanneer nodig.
+35 - Gebruik `npm run dev` om de app lokaal te draaien. Zorg dat dit gebeurt in de juiste projectfolder.
+36 - Bij het testen van postcodevalidatie of stripe-functionaliteit, gebruik de bestaande endpoints in /app/api en respecteer de mappenstructuur.
+37 - Code moet direct functioneel én visueel werkend zijn binnen de bestaande setup, zonder aanvullende configuratie buiten wat in README-bestanden staat.
+38 - Start de server NIET automatisch op na elke wijziging. Laat dit aan de gebruiker over om handmatig te doen wanneer nodig.
+
+# -------------------------------
+# DEBUGGING STRATEGY
+# -------------------------------
+39 - Bij lege resultaten: gebruik MCP tools om direct database state te controleren voordat je frontend/API code aanpast.
+40 - Voeg logging toe aan zowel frontend als backend bij nieuwe features: `console.log('[Frontend]', '[API]')` prefixes gebruiken.
+41 - Test API-routes met verschillende user roles en rechten om edge cases vroeg te vangen.
+42 - Bij Supabase problemen: controleer eerst RLS, dan foreign key constraints, dan client configuratie.
 
 # -------------------------------
 # BONUS: UITLEG BIJ GENERATIE
 # -------------------------------
-33 - Voeg altijd een korte uitleg toe bij elke functie, component of API-route. Gebruik duidelijke comments in mensentaal om uit te leggen wat iets doet en waarvoor het bedoeld is.
+43 - Voeg altijd een korte uitleg toe bij elke functie, component of API-route. Gebruik duidelijke comments in mensentaal om uit te leggen wat iets doet en waarvoor het bedoeld is.
     Voorbeeld:
     // Deze API-route verwerkt uploads van productafbeeldingen en slaat ze tijdelijk op in de /uploads-map
 

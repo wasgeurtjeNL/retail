@@ -1,16 +1,41 @@
 import { Stripe, loadStripe } from '@stripe/stripe-js';
 import { stripe as serverStripe } from './stripe-server';
 
-// Hardcoded test key for development
-const STRIPE_PUBLISHABLE_KEY = 'pk_test_51LmLUMJtFvAJ7sDPKPYFmeytjnl4plJADipNJqdTvzv4mgjMdnuNKbsLUUhVw7kTmCF1w1LxmsDfNw4MzDswYYue00yPdbie2B';
+// Get the appropriate publishable key based on test mode
+const getStripePublishableKey = (): string => {
+  // Check if we're in test mode (from localStorage)
+  const isTestMode = typeof window !== 'undefined' 
+    ? localStorage.getItem('STRIPE_TEST_MODE') !== 'false'
+    : true; // Default to test mode on server
+
+  return isTestMode 
+    ? process.env.NEXT_PUBLIC_STRIPE_TEST_PUBLISHABLE_KEY || ''
+    : process.env.NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY || '';
+};
 
 // Store the Stripe promise globally
 let stripePromise: Promise<Stripe | null> | null = null;
+let currentTestMode: boolean | null = null;
 
 // Get or initialize Stripe
 export const getStripe = async (): Promise<Stripe | null> => {
+  const isTestMode = typeof window !== 'undefined' 
+    ? localStorage.getItem('STRIPE_TEST_MODE') !== 'false'
+    : true;
+
+  // Reinitialize if test mode changed
+  if (currentTestMode !== isTestMode) {
+    stripePromise = null;
+    currentTestMode = isTestMode;
+  }
+
   if (!stripePromise) {
-    stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
+    const publishableKey = getStripePublishableKey();
+    if (!publishableKey) {
+      console.error('Stripe publishable key not found in environment variables');
+      return null;
+    }
+    stripePromise = loadStripe(publishableKey);
   }
   return stripePromise;
 };

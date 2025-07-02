@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import { getRetailerByToken } from '@/lib/supabase';
 
 // Client component die token als prop ontvangt
 export default function RetailerActivateClient({ token }: { token: string }) {
@@ -29,18 +28,28 @@ export default function RetailerActivateClient({ token }: { token: string }) {
         }
         
         console.log(`Verifying activation token: ${token}`);
-        const { retailer, error } = await getRetailerByToken(token);
         
-        if (error || !retailer) {
-          console.error('Error finding retailer by token:', error);
+        // Gebruik API route voor server-side verificatie
+        const response = await fetch('/api/retailers/verify-token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ token })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok || !result.success) {
+          console.error('Error finding retailer by token:', result.error);
           setError('Deze activatielink is ongeldig of verlopen. Neem contact op met Wasgeurtje support.');
           setIsLoading(false);
           return;
         }
         
-        console.log('Retailer found:', retailer.business_name);
-        setEmail(retailer.email || '');
-        setRetailerName(retailer.business_name || '');
+        console.log('Retailer found:', result.retailer.business_name);
+        setEmail(result.retailer.email || '');
+        setRetailerName(result.retailer.business_name || '');
         setIsLoading(false);
       } catch (error) {
         console.error('Error verifying token:', error);
@@ -50,7 +59,7 @@ export default function RetailerActivateClient({ token }: { token: string }) {
     };
 
     verifyToken();
-  }, [token]); // Token is nu een prop, geen state
+  }, [token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,22 +80,40 @@ export default function RetailerActivateClient({ token }: { token: string }) {
     }
 
     try {
-      // In een echte applicatie zou je hier een gebruiker aanmaken en koppelen aan de retailer
-      // Voor deze demo simuleren we het proces
+      console.log('Activating account with token:', token);
       
-      // Simuleer een API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Roep de nieuwe activation API aan
+      const response = await fetch('/api/retailers/activate-account', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token,
+          password
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Er is een fout opgetreden bij het activeren van uw account');
+      }
+      
+      console.log('Account successfully activated:', result);
       
       // Toon succes en redirect na een korte pauze
       setSuccess(true);
       
       // Redirect na 3 seconden
       setTimeout(() => {
-        router.push('/login');
+        router.push('/login?message=Account succesvol geactiveerd. U kunt nu inloggen.');
       }, 3000);
+      
     } catch (error) {
       console.error('Error activating account:', error);
-      setError('Er is een fout opgetreden bij het activeren van uw account. Probeer het later opnieuw.');
+      const errorMessage = error instanceof Error ? error.message : 'Er is een fout opgetreden bij het activeren van uw account. Probeer het later opnieuw.';
+      setError(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -179,6 +206,7 @@ export default function RetailerActivateClient({ token }: { token: string }) {
                       onChange={(e) => setPassword(e.target.value)}
                       className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                       placeholder="Minimaal 8 tekens"
+                      disabled={isSubmitting}
                     />
                   </div>
                   
@@ -196,6 +224,7 @@ export default function RetailerActivateClient({ token }: { token: string }) {
                       onChange={(e) => setPassword2(e.target.value)}
                       className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
                       placeholder="Herhaal wachtwoord"
+                      disabled={isSubmitting}
                     />
                   </div>
                   
@@ -203,21 +232,19 @@ export default function RetailerActivateClient({ token }: { token: string }) {
                     <button
                       type="submit"
                       disabled={isSubmitting}
-                      className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 ${
-                        isSubmitting ? 'opacity-70 cursor-wait' : ''
-                      }`}
+                      className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isSubmitting ? (
                         <>
-                          <span className="absolute left-0 inset-y-0 flex items-center pl-3">
-                            <svg className="animate-spin h-5 w-5 text-pink-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                          </span>
-                          Activeren...
+                          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Account activeren...
                         </>
-                      ) : 'Account activeren'}
+                      ) : (
+                        'Account activeren'
+                      )}
                     </button>
                   </div>
                 </form>

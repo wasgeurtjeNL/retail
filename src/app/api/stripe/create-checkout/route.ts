@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
   try {
     console.log('API: Stripe checkout request ontvangen');
     const body = await request.json();
-    const { items } = body;
+    const { items, isTestMode } = body;
     
     console.log('API: Items voor checkout:', JSON.stringify(items, null, 2));
     
@@ -88,9 +88,25 @@ export async function POST(request: NextRequest) {
     
     console.log('API: Creating checkout session met parameters:', JSON.stringify(sessionParams, null, 2));
     
+    // Determine which Stripe key to use based on test mode
+    const testMode = isTestMode !== false; // Default to test mode for safety
+    const secretKey = testMode 
+      ? process.env.STRIPE_TEST_SECRET_KEY
+      : process.env.STRIPE_LIVE_SECRET_KEY;
+
+    if (!secretKey) {
+      console.error('API: Stripe secret key not found for mode:', testMode ? 'test' : 'live');
+      return NextResponse.json(
+        { success: false, error: `Stripe ${testMode ? 'test' : 'live'} secret key not configured` }, 
+        { status: 500, headers }
+      );
+    }
+    
+    console.log('API: Using Stripe in', testMode ? 'test' : 'live', 'mode');
+    
     try {
       // Maak de checkout sessie aan
-      const session = await createCheckoutSession(sessionParams);
+      const session = await createCheckoutSession(sessionParams, secretKey);
       
       if (!session.url) {
         console.error('API: Fout - De aangemaakte Stripe sessie heeft geen URL.');

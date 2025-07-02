@@ -35,6 +35,37 @@ const ResetDataButton = () => {
   );
 };
 
+// Nieuwe asynchrone functie:
+const fetchWasstripsApplications = async () => {
+  try {
+    console.log('[DEBUG] Fetching Wasstrips applications from API...');
+    const res = await fetch('/api/wasstrips-applications');
+    
+    if (!res.ok) {
+      console.error('[DEBUG] API response not OK:', res.status);
+      return 0;
+    }
+    
+    const result = await res.json();
+    console.log('[DEBUG] API response:', result);
+    
+    // De nieuwe API structuur gebruikt { applications: [...] }
+    if (result && Array.isArray(result.applications)) {
+      // Tel alleen aanvragen van retailers die nog in behandeling zijn (retailer pending)
+      const pendingRetailerApplications = result.applications.filter((app: any) => app.retailerPending);
+      console.log('[DEBUG] Total applications:', result.applications.length);
+      console.log('[DEBUG] Applications from pending retailers:', pendingRetailerApplications.length);
+      return pendingRetailerApplications.length;
+    }
+    
+    console.log('[DEBUG] No applications found or invalid structure');
+    return 0;
+  } catch (error) {
+    console.error('[DEBUG] Error fetching Wasstrips applications from API:', error);
+    return 0;
+  }
+};
+
 export default function DashboardPage() {
   const { user, isLoading: authLoading, isAdmin } = useAuth();
   const [pendingRetailersCount, setPendingRetailersCount] = useState(0);
@@ -95,21 +126,6 @@ export default function DashboardPage() {
     // Set mounted ref to true on mount
     mountedRef.current = true;
     
-    // Functie om Wasstrips aanvragen uit localStorage te halen
-    const fetchWasstripsApplications = () => {
-      try {
-        const storedApplications = localStorage.getItem('wasstrips-applications');
-        if (storedApplications) {
-          const applications = JSON.parse(storedApplications);
-          return Array.isArray(applications) ? applications.length : 0;
-        }
-        return 0;
-      } catch (error) {
-        console.error('[DEBUG] Error fetching Wasstrips applications:', error);
-        return 0;
-      }
-    };
-    
     // Create an asynchronous function to load data
     const loadData = async () => {
       console.log("[DEBUG] loadData started");
@@ -148,7 +164,7 @@ export default function DashboardPage() {
           
           // Get Wasstrips applications count
           console.log("[DEBUG] Fetching Wasstrips applications");
-          const wasstripsAppsCount = fetchWasstripsApplications();
+          const wasstripsAppsCount = await fetchWasstripsApplications();
           console.log("[DEBUG] wasstripsAppsCount result:", wasstripsAppsCount);
           
           // Only update state if still mounted
@@ -447,8 +463,8 @@ export default function DashboardPage() {
                             </div>
                             {wasstripsApplicationsCount > 0 && (
                               <div className="ml-2">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-800">
-                                  In behandeling
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                  Retailers in behandeling
                                 </span>
                               </div>
                             )}
@@ -466,6 +482,38 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 
+                {/* Monitoring */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-indigo-500 rounded-md p-3">
+                        <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">
+                            Monitoring
+                          </dt>
+                          <dd>
+                            <div className="text-2xl font-semibold text-gray-900">
+                              Real-time
+                            </div>
+                          </dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-5 py-3">
+                    <div className="text-sm">
+                      <Link href="/dashboard/monitoring" className="font-medium text-indigo-600 hover:text-indigo-500">
+                        Bekijk monitoring
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Instellingen */}
                 <div className="bg-white overflow-hidden shadow rounded-lg">
                   <div className="p-5">
@@ -528,8 +576,8 @@ export default function DashboardPage() {
                     </dt>
                     <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
                       {wasstripsApplicationsCount === 0 
-                        ? 'Geen Wasstrips aanvragen' 
-                        : `${wasstripsApplicationsCount} aanvragen voor Wasstrips`}
+                        ? 'Geen Wasstrips aanvragen van retailers in behandeling' 
+                        : `${wasstripsApplicationsCount} aanvragen van retailers die nog goedkeuring wachten`}
                     </dd>
                   </div>
                   <div className="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">

@@ -1,55 +1,11 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import dynamic from 'next/dynamic';
+import { getWasstripsOrdersForRetailer, Order as SupabaseOrder } from '@/lib/supabase';
 
-// Lazy load modal component to improve initial load performance
-const OrderDetailsModal = dynamic(() => import('@/components/OrderDetailsModal'), {
-  loading: () => <div className="fixed z-10 inset-0 overflow-y-auto">
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="bg-white p-6 rounded-lg shadow-lg">
-        <p>Details laden...</p>
-      </div>
-    </div>
-  </div>,
-  ssr: false
-});
-
-// Types voor orders
-interface OrderItem {
-  id: string;
-  product_id: string;
-  product_name: string;
-  quantity: number;
-  price: number;
-}
-
-// Payment and fulfillment status types
-type PaymentStatus = 'paid' | 'pending' | 'failed';
-type FulfillmentStatus = 'processing' | 'shipped' | 'delivered' | 'canceled' | 'pending';
-
-export interface Order {
-  id: string;
-  created_at: string;
-  status: 'nieuw' | 'betaald' | 'verzonden' | 'geleverd' | 'geannuleerd';
-  paymentStatus?: 'pending' | 'paid' | 'failed' | 'expired';
-  paymentMethod?: 'invoice' | 'stripe';
-  paymentDueDate?: string;
-  total: number;
-  items: OrderItem[];
-  tracking_code?: string;
-  notes?: string;
-  payment_method: 'stripe' | 'invoice';
-  payment_status: PaymentStatus;
-  fulfillment_status: FulfillmentStatus;
-  date: string;
-  total_amount: number;
-  shipping_provider?: 'postnl' | 'dhl';
-}
-
-// Voeg een extra interface toe voor Wasstrips applicaties
+// Interface voor Wasstrips applicaties
 interface WasstripsApplication {
   id: string;
   businessName: string;
@@ -59,1022 +15,797 @@ interface WasstripsApplication {
   selectedPaymentOption?: 'direct' | 'invoice' | null;
   isPaid: boolean;
   paymentLinkSentAt?: string;
-  paymentDueDate?: string; // Voor factuurbetalingen
+  paymentDueDate?: string;
+  status?: 'pending' | 'approved' | 'rejected' | 'shipped' | 'delivered';
+  deposit_status?: 'not_sent' | 'sent' | 'paid' | 'failed';
+  deposit_paid_at?: string;
+  tracking_code?: string;
 }
 
-// Mock data voor development
-const mockOrders: Order[] = [
-  {
-    id: 'ORD-1744497956483',
-    created_at: '2025-04-13T14:30:00Z',
-    status: 'geleverd',
-    paymentStatus: 'paid',
-    paymentMethod: 'stripe',
-    total: 355.70,
-    items: [
-      { id: 'item1', product_id: 'p1', product_name: 'Wasgeurtje Lavendel', quantity: 1, price: 119.90 },
-      { id: 'item2', product_id: 'p2', product_name: 'Wasgeurtje Vanille', quantity: 1, price: 119.90 },
-      { id: 'item3', product_id: 'p3', product_name: 'Wasparfum Zomer', quantity: 1, price: 115.90 }
-    ],
-    tracking_code: 'NL12345678',
-    notes: 'Betaald via Stripe',
-    payment_method: 'stripe',
-    payment_status: 'paid',
-    fulfillment_status: 'delivered',
-    date: '2025-04-13T14:30:00Z',
-    total_amount: 355.70
-  },
-  {
-    id: 'ORD-1744496722160',
-    created_at: '2025-04-13T10:15:00Z',
-    status: 'verzonden',
-    paymentStatus: 'paid', 
-    paymentMethod: 'stripe',
-    total: 737.50,
-    items: [
-      { id: 'item4', product_id: 'p4', product_name: 'Wasgeurtje Oceaan', quantity: 2, price: 119.95 },
-      { id: 'item5', product_id: 'p5', product_name: 'Wasgeurtje Bos', quantity: 2, price: 122.50 },
-      { id: 'item6', product_id: 'p6', product_name: 'Wasparfum Lente', quantity: 1, price: 252.60 }
-    ],
-    tracking_code: 'NL98765432',
-    payment_method: 'stripe',
-    payment_status: 'paid',
-    fulfillment_status: 'shipped',
-    date: '2025-04-13T10:15:00Z',
-    total_amount: 737.50
-  },
-  {
-    id: 'ORD-1744496139797',
-    created_at: '2025-04-13T16:45:00Z',
-    status: 'betaald',
-    paymentStatus: 'paid',
-    paymentMethod: 'stripe',
-    total: 505.20,
-    items: [
-      { id: 'item7', product_id: 'p1', product_name: 'Wasgeurtje Lavendel', quantity: 1, price: 119.90 },
-      { id: 'item8', product_id: 'p6', product_name: 'Wasparfum Lente', quantity: 1, price: 252.60 },
-      { id: 'item9', product_id: 'p7', product_name: 'Display Standaard', quantity: 1, price: 132.70 }
-    ],
-    payment_method: 'stripe',
-    payment_status: 'paid',
-    fulfillment_status: 'processing',
-    date: '2025-04-13T16:45:00Z',
-    total_amount: 505.20
-  },
-  {
-    id: 'ORD-1744493550478',
-    created_at: '2025-04-12T14:30:00Z',
-    status: 'betaald',
-    paymentStatus: 'paid',
-    paymentMethod: 'stripe',
-    total: 519.35,
-    items: [
-      { id: 'item10', product_id: 'p8', product_name: 'Premium Wasparfum Set', quantity: 1, price: 519.35 }
-    ],
-    payment_method: 'stripe',
-    payment_status: 'paid',
-    fulfillment_status: 'processing',
-    date: '2025-04-12T14:30:00Z',
-    total_amount: 519.35
-  },
-  {
-    id: 'ORD-1744491694005',
-    created_at: '2025-04-12T12:30:00Z',
-    status: 'betaald',
-    paymentStatus: 'paid',
-    paymentMethod: 'stripe',
-    total: 334.95,
-    items: [
-      { id: 'item11', product_id: 'p9', product_name: 'Wasparfum Basic Set', quantity: 1, price: 334.95 }
-    ],
-    payment_method: 'stripe',
-    payment_status: 'paid',
-    fulfillment_status: 'processing',
-    date: '2025-04-12T12:30:00Z',
-    total_amount: 334.95
-  }
-];
+// Professionele Order Status Component met animaties
+const OrderStatusBadge = ({ order }: { order: SupabaseOrder }) => {
+  const getStatusInfo = () => {
+    // Synchroniseer met admin status mapping
+    if (order.payment_status === 'pending') {
+      return { 
+        text: 'Betaling open', 
+        color: 'bg-gradient-to-r from-amber-100 to-amber-200 text-amber-800 border-amber-300', 
+        icon: '💳', 
+        urgent: true,
+        pulse: true 
+      };
+    }
+    if (order.payment_status === 'paid' && order.fulfillment_status === 'processing') {
+      return { 
+        text: 'Wordt voorbereid', 
+        color: 'bg-gradient-to-r from-blue-100 to-blue-200 text-blue-800 border-blue-300', 
+        icon: '⚡', 
+        urgent: false,
+        pulse: true 
+      };
+    }
+    if (order.fulfillment_status === 'shipped') {
+      return { 
+        text: 'Onderweg', 
+        color: 'bg-gradient-to-r from-emerald-100 to-emerald-200 text-emerald-800 border-emerald-300', 
+        icon: '🚚', 
+        urgent: false,
+        pulse: false 
+      };
+    }
+    if (order.fulfillment_status === 'delivered') {
+      return { 
+        text: 'Afgeleverd', 
+        color: 'bg-gradient-to-r from-green-100 to-green-200 text-green-800 border-green-300', 
+        icon: '✅', 
+        urgent: false,
+        pulse: false 
+      };
+    }
+    return { 
+      text: 'In behandeling', 
+      color: 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-800 border-gray-300', 
+      icon: '📋', 
+      urgent: false,
+      pulse: false 
+    };
+  };
+
+  const status = getStatusInfo();
+
+  return (
+    <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border ${status.color} ${
+      status.urgent ? 'ring-2 ring-amber-200 shadow-lg' : 'shadow-sm'
+    } ${status.pulse ? 'animate-pulse' : ''} transition-all duration-300 hover:scale-105`}>
+      <span className="mr-1.5 text-sm">{status.icon}</span>
+      {status.text}
+    </span>
+  );
+};
+
+// Professionele Track & Trace Component met animaties
+const CompactTrackingInfo = ({ order }: { order: SupabaseOrder }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  
+  if (!order.tracking_code) return null;
+
+  const getCarrierInfo = () => {
+    const code = order.tracking_code;
+    if (code?.startsWith('3S')) {
+      return { 
+        name: 'PostNL', 
+        url: `https://postnl.nl/tracktrace/?B=${code}&P=1015CW&D=NL&T=C`, 
+        logo: '📮',
+        color: 'from-orange-50 to-orange-100 border-orange-200'
+      };
+    }
+    if (code?.includes('DHL')) {
+      return { 
+        name: 'DHL', 
+        url: `https://www.dhl.com/nl-nl/home/tracking.html?tracking-id=${code}`, 
+        logo: '📦',
+        color: 'from-yellow-50 to-yellow-100 border-yellow-200'
+      };
+    }
+    return { 
+      name: 'Vervoerder', 
+      url: '#', 
+      logo: '🚚',
+      color: 'from-blue-50 to-blue-100 border-blue-200'
+    };
+  };
+
+  const carrier = getCarrierInfo();
+
+  return (
+    <div 
+      className={`mt-3 p-3 bg-gradient-to-r ${carrier.color} rounded-lg border transition-all duration-300 hover:shadow-md ${
+        isHovered ? 'scale-102' : ''
+      }`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-sm">{carrier.logo}</span>
+            <p className="text-xs font-semibold text-gray-700">Track & Trace Actief</p>
+            <div className="flex space-x-1">
+              <div className="w-1 h-1 bg-green-500 rounded-full animate-ping"></div>
+              <div className="w-1 h-1 bg-green-500 rounded-full animate-ping" style={{animationDelay: '0.2s'}}></div>
+              <div className="w-1 h-1 bg-green-500 rounded-full animate-ping" style={{animationDelay: '0.4s'}}></div>
+            </div>
+          </div>
+          <p className="text-xs text-gray-600 font-mono bg-white/60 px-2 py-1 rounded">
+            {order.tracking_code}
+          </p>
+        </div>
+        <a
+          href={carrier.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs bg-gradient-to-r from-blue-600 to-blue-700 text-white px-3 py-2 rounded-md hover:from-blue-700 hover:to-blue-800 transition-all duration-200 transform hover:scale-105 shadow-sm hover:shadow-md flex items-center gap-1"
+          title={`Volg bij ${carrier.name}`}
+        >
+          <span>{carrier.logo}</span>
+          <span className="font-medium">Volg</span>
+        </a>
+      </div>
+    </div>
+  );
+};
+
+// Uitgebreide Order Detail Modal met professionele timeline
+const OrderDetailModalWithTimeline = ({ order, onClose, onPayNow }: {
+  order: SupabaseOrder;
+  onClose: () => void;
+  onPayNow: (order: SupabaseOrder) => void;
+}) => {
+  const getStatusSteps = () => {
+    const steps = [
+      {
+        id: 'order_placed',
+        title: 'Bestelling Geplaatst',
+        description: 'Uw wasstrips bestelling is ontvangen en geregistreerd',
+        completed: true,
+        current: false,
+        icon: '📋',
+        color: 'text-green-600 bg-green-100'
+      },
+      {
+        id: 'payment_completed',
+        title: 'Betaling Voltooid',
+        description: order.payment_status === 'paid' ? 'Betaling succesvol ontvangen en verwerkt' : 'Wachtend op uw betaling',
+        completed: order.payment_status === 'paid',
+        current: order.payment_status === 'pending',
+        icon: '💳',
+        color: order.payment_status === 'paid' ? 'text-green-600 bg-green-100' : 'text-blue-600 bg-blue-100'
+      },
+      {
+        id: 'preparation',
+        title: 'Bestelling Voorbereiden',
+        description: 'Wasgeurtje bereidt uw zending zorgvuldig voor',
+        completed: order.fulfillment_status === 'shipped' || order.fulfillment_status === 'delivered',
+        current: order.payment_status === 'paid' && order.fulfillment_status === 'processing',
+        icon: '⚡',
+        color: (order.fulfillment_status === 'shipped' || order.fulfillment_status === 'delivered') ? 'text-green-600 bg-green-100' : 'text-blue-600 bg-blue-100'
+      },
+      {
+        id: 'shipped',
+        title: 'Verzonden',
+        description: order.tracking_code ? `Uw pakket is onderweg! Track & Trace: ${order.tracking_code}` : 'Uw zending is onderweg naar u',
+        completed: order.fulfillment_status === 'shipped' || order.fulfillment_status === 'delivered',
+        current: order.fulfillment_status === 'shipped',
+        icon: '🚚',
+        color: (order.fulfillment_status === 'shipped' || order.fulfillment_status === 'delivered') ? 'text-green-600 bg-green-100' : 'text-gray-400 bg-gray-100'
+      },
+      {
+        id: 'delivered',
+        title: 'Afgeleverd',
+        description: 'Uw wasstrips pakket is succesvol afgeleverd',
+        completed: order.fulfillment_status === 'delivered',
+        current: false,
+        icon: '✅',
+        color: order.fulfillment_status === 'delivered' ? 'text-green-600 bg-green-100' : 'text-gray-400 bg-gray-100'
+      }
+    ];
+
+    return steps;
+  };
+
+  const steps = getStatusSteps();
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
+      <div className="relative top-10 mx-auto p-0 border-0 w-11/12 md:w-3/4 lg:w-2/3 xl:w-1/2 shadow-2xl rounded-2xl bg-white animate-in slide-in-from-bottom-4 duration-300">
+        {/* Header met gradient */}
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 rounded-t-2xl">
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="text-xl font-bold">Bestelling {order.order_number}</h3>
+              <p className="text-blue-100 text-sm mt-1">Volledige status en tracking informatie</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-white hover:text-gray-200 text-3xl font-light transition-colors hover:rotate-90 transform duration-200"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="p-6">
+          {/* Order Info Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-xl border">
+              <p className="text-sm text-gray-600 mb-1">Besteldatum</p>
+              <p className="font-semibold text-gray-900">
+                {new Date(order.created_at).toLocaleDateString('nl-NL', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </p>
+            </div>
+            <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
+              <p className="text-sm text-gray-600 mb-1">Totaalbedrag</p>
+              <p className="font-bold text-xl text-green-700">€{order.total_amount.toFixed(2)}</p>
+            </div>
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200">
+              <p className="text-sm text-gray-600 mb-1">Status</p>
+              <OrderStatusBadge order={order} />
+            </div>
+          </div>
+
+          {/* Professional Timeline */}
+          <div className="mb-8">
+            <h4 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+              <span className="w-2 h-2 bg-blue-600 rounded-full"></span>
+              Bestelling Voortgang
+            </h4>
+            <div className="relative">
+              {steps.map((step, index) => (
+                <div key={step.id} className="relative flex items-start mb-8 last:mb-0">
+                  {/* Connector line */}
+                  {index < steps.length - 1 && (
+                    <div className={`absolute left-6 top-12 w-0.5 h-16 transition-all duration-500 ${
+                      step.completed ? 'bg-gradient-to-b from-green-400 to-green-500' : 'bg-gray-200'
+                    }`} />
+                  )}
+                  
+                  {/* Icon Circle */}
+                  <div className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold border-2 transition-all duration-300 ${
+                    step.completed 
+                      ? 'bg-gradient-to-br from-green-100 to-green-200 border-green-300 text-green-700 shadow-lg' 
+                      : step.current 
+                      ? 'bg-gradient-to-br from-blue-100 to-blue-200 border-blue-300 text-blue-700 animate-pulse shadow-lg ring-4 ring-blue-100' 
+                      : 'bg-gray-100 border-gray-300 text-gray-400'
+                  }`}>
+                    {step.icon}
+                  </div>
+                  
+                  {/* Content */}
+                  <div className="ml-6 flex-1">
+                    <h5 className={`text-base font-semibold mb-1 transition-colors duration-300 ${
+                      step.completed ? 'text-green-900' : step.current ? 'text-blue-900' : 'text-gray-500'
+                    }`}>
+                      {step.title}
+                    </h5>
+                    <p className={`text-sm leading-relaxed transition-colors duration-300 ${
+                      step.completed ? 'text-green-700' : step.current ? 'text-blue-700' : 'text-gray-500'
+                    }`}>
+                      {step.description}
+                    </p>
+                    
+                    {/* Current step extra info */}
+                    {step.current && (
+                      <div className="mt-3 p-3 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg border border-blue-200 animate-in slide-in-from-left duration-300">
+                        <p className="text-sm text-blue-800 font-medium flex items-center gap-2">
+                          {step.id === 'payment_completed' && (
+                            <>
+                              <span className="w-2 h-2 bg-blue-600 rounded-full animate-ping"></span>
+                              💡 Klik op "Betaal Nu" om uw bestelling te activeren
+                            </>
+                          )}
+                          {step.id === 'preparation' && (
+                            <>
+                              <span className="w-2 h-2 bg-blue-600 rounded-full animate-ping"></span>
+                              ⏱️ Verwachte voorbereidingstijd: 1-2 werkdagen
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Enhanced Track & Trace Section */}
+          {order.tracking_code && (
+            <div className="mb-8 p-6 bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl border border-emerald-200">
+              <h4 className="text-lg font-bold text-emerald-900 mb-4 flex items-center gap-2">
+                <span className="w-2 h-2 bg-emerald-600 rounded-full animate-ping"></span>
+                Track & Trace Actief
+              </h4>
+              <CompactTrackingInfo order={order} />
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex justify-end space-x-4 pt-4 border-t border-gray-200">
+            <button
+              onClick={onClose}
+              className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-all duration-200 font-medium"
+            >
+              Sluiten
+            </button>
+            {order.payment_status === 'pending' && (
+              <button
+                onClick={() => onPayNow(order)}
+                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-medium shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center gap-2"
+              >
+                <span className="text-lg">💳</span>
+                Betaal Nu
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Professionele Order List Item met hover effecten
+const OrderListItem = ({ order, onPayNow, onViewDetails, onDownloadInvoice }: {
+  order: SupabaseOrder;
+  onPayNow: (order: SupabaseOrder) => void;
+  onViewDetails: (order: SupabaseOrder) => void;
+  onDownloadInvoice: (order: SupabaseOrder) => void;
+}) => {
+  const [isHovered, setIsHovered] = useState(false);
+  
+  return (
+    <div 
+      className={`bg-white border border-gray-200 rounded-xl p-5 transition-all duration-300 cursor-pointer ${
+        isHovered ? 'shadow-xl border-blue-300 transform scale-102' : 'shadow-sm hover:shadow-lg'
+      } ${order.payment_status === 'pending' ? 'ring-2 ring-amber-200' : ''}`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {/* Header Row */}
+      <div className="flex justify-between items-start mb-4">
+        <div className="flex-1">
+          <h3 className="font-bold text-lg text-gray-900 mb-1">{order.order_number}</h3>
+          <p className="text-sm text-gray-500 flex items-center gap-2">
+            <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+            {new Date(order.created_at).toLocaleDateString('nl-NL', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric'
+            })}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="font-bold text-xl text-gray-900">€{order.total_amount.toFixed(2)}</p>
+          <p className="text-xs text-gray-500 flex items-center justify-end gap-1">
+            <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+            {order.items?.reduce((total, item) => total + item.quantity, 0) || 1} item(s)
+          </p>
+        </div>
+      </div>
+
+      {/* Status Badge */}
+      <div className="mb-4">
+        <OrderStatusBadge order={order} />
+      </div>
+
+      {/* Track & Trace (compact) */}
+      <CompactTrackingInfo order={order} />
+
+      {/* Action Buttons */}
+      <div className="flex gap-3 mt-4">
+        {order.payment_status === 'pending' ? (
+          <button
+            onClick={() => onPayNow(order)}
+            className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-medium shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
+          >
+            <span className="text-base">💳</span>
+            Betaal Nu
+          </button>
+        ) : (
+          <button
+            onClick={() => onViewDetails(order)}
+            className="flex-1 px-4 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white text-sm rounded-lg hover:from-gray-700 hover:to-gray-800 transition-all duration-200 font-medium shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
+          >
+            <span className="text-base">👁️</span>
+            Details
+          </button>
+        )}
+        
+        <button
+          onClick={() => onDownloadInvoice(order)}
+          className="px-4 py-3 text-gray-700 bg-gradient-to-r from-gray-100 to-gray-200 text-sm rounded-lg hover:from-gray-200 hover:to-gray-300 transition-all duration-200 font-medium shadow-sm hover:shadow-md transform hover:scale-105"
+          title="Download factuur"
+        >
+          📄
+        </button>
+      </div>
+    </div>
+  );
+};
 
 export default function OrdersPage() {
   const { user } = useAuth();
+  const [orders, setOrders] = useState<SupabaseOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [wasstripsApplications, setWasstripsApplications] = useState<WasstripsApplication[]>([]);
-  const [activeTab, setActiveTab] = useState<'all' | 'active' | 'completed' | 'wasstrips'>('all');
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [showDetails, setShowDetails] = useState(false);
-  const [showInvoiceAlert, setShowInvoiceAlert] = useState(false);
-  const [invoiceAlertDismissed, setInvoiceAlertDismissed] = useState(false);
-  const [minutesSinceAlert, setMinutesSinceAlert] = useState(0);
-  const [currentInvoiceApp, setCurrentInvoiceApp] = useState<WasstripsApplication | null>(null);
-  
-  // Gebruik useCallback voor event handlers om onnodige renders te voorkomen
-  const openOrderDetails = useCallback((order: Order) => {
-    setSelectedOrder(order);
-    setShowDetails(true);
-  }, []);
-  
-  const closeOrderDetails = useCallback(() => {
-    setShowDetails(false);
-    setSelectedOrder(null);
-  }, []);
-  
-  const handleDismissAlert = useCallback(() => {
-    setInvoiceAlertDismissed(true);
-    setShowInvoiceAlert(false);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [selectedOrder, setSelectedOrder] = useState<SupabaseOrder | null>(null);
+  const [isOrderDetailOpen, setIsOrderDetailOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'all' | 'wasstrips'>('all');
+
+  // Mock functie voor backward compatibility
+  const loadWasstripsApplications = useCallback(() => {
+    console.log('[Frontend] loadWasstripsApplications called (mock function)');
   }, []);
 
-  // Verplaats de loadWasstripsApplications functie naar buiten de useEffect om hermontage te voorkomen
-  const loadWasstripsApplications = useCallback(() => {
+  // Laad echte orders uit Supabase
+  const loadRealOrders = useCallback(async () => {
+    setIsLoading(true);
     try {
-      const storedApplications = localStorage.getItem('wasstrips-applications');
-      if (storedApplications) {
-        const applications = JSON.parse(storedApplications);
-        
-        // Filter applicaties die relevant zijn voor deze gebruiker
-        const userEmail = user?.email;
-        if (userEmail) {
-          const userApplications = applications.filter((app: any) => app.email === userEmail);
-          
-          // Voeg potentiële ontbrekende velden toe voor de weergave
-          const processedApplications = userApplications.map((app: any) => {
-            // Als een factuur is geselecteerd, voeg een vervaldatum toe
-            if (app.selectedPaymentOption === 'invoice' && !app.paymentDueDate && app.paymentLinkSentAt) {
-              const dueDate = new Date(app.paymentLinkSentAt);
-              dueDate.setDate(dueDate.getDate() + 14); // 14 dagen betalingstermijn
-              app.paymentDueDate = dueDate.toISOString();
-            }
-            return app;
-          });
-          
-          // Verwijder overbodige console.log
-          setWasstripsApplications(processedApplications);
-          
-          // Reset de standaard waarschuwingsvlag
-          setShowInvoiceAlert(false);
-          
-          // Controleer of er een factuur is geselecteerd en toon de juiste melding
-          const invoiceApp = processedApplications.find((app: WasstripsApplication) => 
-            app.selectedPaymentOption === 'invoice' && !app.isPaid
-          );
-          
-          // Als er een factuur-optie is gekozen, toon de factuur alert
-          if (invoiceApp && !invoiceAlertDismissed) {
-            setShowInvoiceAlert(true);
-            setMinutesSinceAlert(16); // Start willekeurig met 16 minuten geleden
-            setCurrentInvoiceApp(invoiceApp);
-            
-            // Timer voor de "minuten geleden" teller
-            const timer = setInterval(() => {
-              setMinutesSinceAlert(prev => prev + 1);
-            }, 60000); // Elke minuut updaten
-            
-            return () => clearInterval(timer);
-          }
-        }
+      console.log('[Frontend] Fetching wasstrips orders from Supabase...');
+      
+      // Controleer of user.email bestaat
+      if (!user?.email) {
+        console.warn('[Frontend] No user email found');
+        setOrders([]);
+        setIsLoading(false);
+        return;
       }
+      
+      // Cache buster om nieuwe data te forceren
+      const timestamp = Date.now();
+      console.log('[Frontend] Cache buster timestamp:', timestamp);
+      
+      const result = await getWasstripsOrdersForRetailer(user.email);
+      console.log('[Frontend] Found wasstrips orders result:', result);
+      
+      // Extract orders from result
+      const wasstripsOrders = result.orders || [];
+      console.log('[Frontend] Extracted orders:', wasstripsOrders);
+      
+      // Debug: log each order's total_amount and payment_status
+      wasstripsOrders.forEach((order, index) => {
+        console.log(`[Frontend] Order ${index + 1} (${order.order_number}):`, {
+          total_amount: order.total_amount,
+          payment_status: order.payment_status,
+          fulfillment_status: order.fulfillment_status,
+          tracking_code: order.tracking_code,
+          metadata: order.metadata
+        });
+      });
+      
+      // Zet orders in state
+      setOrders(wasstripsOrders);
+      setIsLoading(false);
     } catch (error) {
-      console.error('Fout bij het ophalen van Wasstrips applicaties:', error);
-    } finally {
+      console.error('[Frontend] Error loading wasstrips orders:', error);
+      // Fallback naar lege array bij fout
+      setOrders([]);
       setIsLoading(false);
     }
-  }, [user, invoiceAlertDismissed]);
-  
-  // Maak de handlePayNow functie met useCallback om onnodige renders te voorkomen
-  const handlePayNow = useCallback(async (order: Order) => {
+  }, [user?.email]);
+
+  // useEffect voor data loading - nu met echte Supabase data
+  useEffect(() => {
+    if (!user) return;
+    
+    console.log('[Frontend] useEffect triggered, user:', user.email);
+    loadRealOrders();
+  }, [user, loadRealOrders]);
+
+  // Auto-refresh elke 30 seconden
+  useEffect(() => {
+    if (!user) return;
+    
+    const interval = setInterval(() => {
+      console.log('[Frontend] Auto-refresh triggered');
+      loadRealOrders();
+    }, 30000); // 30 seconden
+    
+    return () => clearInterval(interval);
+  }, [user, loadRealOrders]);
+
+  // Manual refresh met visuele feedback
+  const handleForceRefresh = async () => {
+    console.log('[Frontend] Force refresh triggered by user');
+    setIsLoading(true);
+    await loadRealOrders();
+    // Korte vertraging voor visuele feedback
+    setTimeout(() => setIsLoading(false), 500);
+  };
+
+  // Filter orders based on selected filter
+  const filteredOrders = orders.filter(order => {
+    if (filterStatus === 'all') return true;
+    if (filterStatus === 'pending') return order.payment_status === 'pending';
+    if (filterStatus === 'paid') return order.payment_status === 'paid';
+    if (filterStatus === 'shipped') return order.fulfillment_status === 'shipped';
+    return true;
+  });
+
+  // Betaalfunctie voor openstaande bestellingen
+  const handlePayNow = async (order: SupabaseOrder) => {
     try {
-      // Bereid de data voor voor Stripe
+      console.log('[Frontend] Initiating payment for order:', order.id, 'amount:', order.total_amount);
+      
+      // Valideer order data
+      if (!order.total_amount || order.total_amount <= 0) {
+        console.error('[Frontend] Invalid order amount:', order.total_amount);
+        alert('Fout: Ongeldig orderbedrag. Kan betaling niet starten.');
+        return;
+      }
+      
+      // Check test mode from localStorage (zoals in werkende wasstrips code)
+      const savedTestMode = localStorage.getItem('STRIPE_TEST_MODE');
+      const isTestMode = savedTestMode !== 'false'; // Default to test mode unless explicitly set to false
+      
+      console.log('[Frontend] Using test mode:', isTestMode);
+      
+      // Bereid order data voor voor Stripe
       const stripeOrder = {
         id: order.id,
-        totalAmount: order.total,
-        items: order.items.map(item => ({
-          id: item.product_id,
-          name: item.product_name,
-          quantity: item.quantity,
-          price: item.price
-        })),
+        totalAmount: order.total_amount,
+        items: order.items?.map(item => ({
+          id: item.id || 'item',
+          name: item.product_name || 'Product',
+          quantity: item.quantity || 1,
+          price: item.price || 0
+        })) || [],
         date: order.created_at,
-        status: order.status,
+        status: order.fulfillment_status,
         paymentStatus: 'pending',
         paymentMethod: 'stripe'
       };
       
-      // Sla het order op in localStorage voor gebruik door Stripe
+      console.log('[Frontend] Prepared stripe order:', stripeOrder);
+      
+      // Sla de order op in localStorage voor gebruik door Stripe
       localStorage.setItem('stripeOrder', JSON.stringify(stripeOrder));
       
-      // Markeer de order als 'in process' in de UI, indien nodig
-      setOrders(prevOrders => 
-        prevOrders.map(o => 
-          o.id === order.id 
-            ? { ...o, paymentStatus: 'pending' as const } 
-            : o
-        )
-      );
+      // Bereid API request voor (inclusief isTestMode zoals in werkende code)
+      const requestBody = {
+        items: stripeOrder.items,
+        orderId: order.id,
+        amount: order.total_amount,
+        isTestMode: isTestMode
+      };
       
-      // Maak de items array voor de Stripe API
-      const items = order.items.map(item => ({
-        price_data: {
-          currency: 'eur',
-          product_data: {
-            name: item.product_name,
-            description: `Product ID: ${item.product_id}`,
-          },
-          unit_amount: Math.round(item.price * 100), // Stripe verwacht bedragen in centen
-        },
-        quantity: item.quantity
-      }));
+      console.log('[Frontend] API request body:', requestBody);
       
-      // Direct POST-verzoek naar de juiste API route
-      const response = await fetch('/api/stripe/create-checkout', {
+      // Start Stripe checkout via API
+      const response = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
-          items,
-          orderId: order.id
-        }),
+        body: JSON.stringify(requestBody),
       });
       
-      // Controleer op succesvolle response
+      console.log('[Frontend] API response status:', response.status);
+      
+      // Check if response is ok
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`API fout (${response.status}): ${errorText}`);
+        console.error('[Frontend] API response not ok:', response.status, errorText);
+        alert(`API fout: ${response.status} - ${errorText}`);
+        return;
       }
       
-      // Parse de JSON response
       const data = await response.json();
+      console.log('[Frontend] API response data:', data);
       
       if (data.success && data.url) {
+        console.log('[Frontend] Redirecting to Stripe checkout:', data.url);
         // Redirect naar Stripe checkout
         window.location.href = data.url;
       } else {
-        throw new Error(data.error || 'Onbekende fout bij het maken van de checkout sessie');
+        console.error('[Frontend] Stripe checkout failed:', data);
+        const errorMessage = data.error || 'Onbekende fout bij het voorbereiden van de betaling';
+        alert(`Er is een fout opgetreden: ${errorMessage}`);
       }
     } catch (error) {
-      console.error('Fout bij het voorbereiden van de betaling:', error);
+      console.error('[Frontend] Payment initiation error:', error);
       alert(`Er is een fout opgetreden bij het voorbereiden van de betaling: ${error instanceof Error ? error.message : 'Onbekende fout'}`);
     }
-  }, []);
+  };
 
-  // Helper functies naar pure funktions omgezet, buiten de component
-  const formatDate = useCallback((dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleString('nl-NL', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  }, []);
-  
-  const getStatusBadgeClass = useCallback((status: Order['status']) => {
-    switch (status) {
-      case 'nieuw': return 'bg-blue-100 text-blue-800';
-      case 'betaald': return 'bg-yellow-100 text-yellow-800';
-      case 'verzonden': return 'bg-purple-100 text-purple-800';
-      case 'geleverd': return 'bg-green-100 text-green-800';
-      case 'geannuleerd': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  }, []);
-  
-  // useEffect voor data loading
-  useEffect(() => {
-    setIsLoading(true);
-    
-    // Voer de applicaties laden functie uit
-    loadWasstripsApplications();
-    
-    // Orders laden met setTimeout om de UI niet te blokkeren
-    const loadOrdersTimer = setTimeout(() => {
-      // Initialiseer een Map om unieke orders op te slaan
-      const orderMap = new Map();
-      
-      // Haal admin orders op uit localStorage voor synchronisatie van tracking codes
-      const adminOrdersData = localStorage.getItem('mockOrders');
-      let adminOrders: any[] = [];
-      
-      // Parse admin orders data als deze beschikbaar is
-      if (adminOrdersData) {
-        try {
-          adminOrders = JSON.parse(adminOrdersData);
-          // Verwijder console.log debug statements
-        } catch (error) {
-          console.error('Fout bij het ophalen van admin orders:', error);
-        }
-      }
-      
-      // Voeg eerst mock orders toe aan de map
-      mockOrders.forEach((mockOrder: Order) => {
-        // Controleer of er een bijbehorende admin order is met tracking code
-        const adminOrder = adminOrders.find(ao => ao.id === mockOrder.id);
-        
-        if (adminOrder && adminOrder.tracking_code && !mockOrder.tracking_code) {
-          // Synchroniseer tracking code van admin naar mock order
-          mockOrder.tracking_code = adminOrder.tracking_code;
-        }
-        orderMap.set(mockOrder.id, mockOrder);
-      });
-      
-      // Probeer dan bestellingen uit localStorage toe te voegen
-      const localStorageOrders = localStorage.getItem('retailerOrders');
-      
-      if (localStorageOrders) {
-        try {
-          const parsedLocalOrders = JSON.parse(localStorageOrders);
-          
-          // Verwerk alle localStorage orders
-          const formattedOrders = parsedLocalOrders.map((order: any) => {
-            // Als het al een volledig Order object is, gebruik het zoals het is
-            if (order.status && order.created_at) {
-              return order as Order;
-            }
-            
-            // Anders zet het om naar het juiste format
-            const formattedOrder: Order = {
-              id: order.id || `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              created_at: order.date || order.created_at || new Date().toISOString(),
-              status: order.status || 'nieuw',
-              paymentStatus: order.paymentStatus || (order.paymentMethod === 'stripe' ? 'paid' : 'pending'),
-              paymentMethod: order.paymentMethod,
-              paymentDueDate: order.paymentDueDate,
-              total: order.totalAmount || order.total,
-              items: order.items.map((item: any) => ({
-                id: item.id || `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                product_id: item.id,
-                product_name: item.name,
-                quantity: item.quantity,
-                price: item.price
-              })),
-              payment_method: order.paymentMethod,
-              payment_status: order.paymentStatus,
-              fulfillment_status: order.status,
-              date: order.date || new Date().toISOString(),
-              total_amount: order.totalAmount || order.total
-            };
-            
-            // Als er een factuur betaalmethode is maar geen vervaldatum, voeg die toe
-            if (formattedOrder.paymentMethod === 'invoice' && !formattedOrder.paymentDueDate) {
-              const dueDate = new Date(formattedOrder.created_at);
-              dueDate.setDate(dueDate.getDate() + 14); // 14 dagen betalingstermijn
-              formattedOrder.paymentDueDate = dueDate.toISOString();
-            }
-            
-            return formattedOrder;
-          });
-          
-          // Update localStorage met geformatteerde orders
-          localStorage.setItem('retailerOrders', JSON.stringify(formattedOrders));
-          
-          // Voeg elke geformatteerde order toe aan de Map als deze nog niet bestaat
-          // of update deze als ID al bestaat (localStorage heeft voorrang)
-          formattedOrders.forEach((order: Order) => {
-            // Zoek of er een bijbehorende admin order is met tracking code
-            const adminOrder = adminOrders.find(ao => ao.id === order.id);
-            
-            if (adminOrder && adminOrder.tracking_code && !order.tracking_code) {
-              // Synchroniseer tracking code van admin naar retailer
-              order.tracking_code = adminOrder.tracking_code;
-            }
-            orderMap.set(order.id, order); 
-          });
-        } catch (error) {
-          console.error('Fout bij het parsen van retailerOrders uit localStorage:', error);
-        }
-      }
-      
-      // Zet de Map om naar een array voor de state
-      const finalOrders = Array.from(orderMap.values());
-      setOrders(finalOrders);
-      setIsLoading(false);
-    }, 200); // Verlaag timeout om sneller te renderen
-    
-    return () => clearTimeout(loadOrdersTimer);
-  }, []); // Verwijder loadWasstripsApplications van dependencies
-  
-  // Memoizeer berekende waardes
-  const getPaymentStatus = useCallback((order: Order) => {
-    // Controleer eerst of er een betaalstatus is
-    if (order.paymentStatus) {
-      return order.paymentStatus;
-    }
-    
-    // Als er geen expliciete betaalstatus is, gebruiken we de order status
-    if (order.status === 'betaald' || order.status === 'verzonden' || order.status === 'geleverd') {
-      return 'paid';
-    }
-    
-    // Voor facturen controleren we of de vervaldatum is verstreken
-    if (order.paymentMethod === 'invoice' && order.paymentDueDate) {
-      const dueDate = new Date(order.paymentDueDate);
-      if (dueDate < new Date()) {
-        return 'expired';
-      }
-      return 'pending';
-    }
-    
-    // Standaard voor nieuwe orders zonder betaalstatus
-    return 'pending';
-  }, []);
+  // Order detail modal openen
+  const handleOrderClick = (order: SupabaseOrder) => {
+    setSelectedOrder(order);
+    setIsOrderDetailOpen(true);
+  };
 
-  const calculateDaysRemaining = useCallback((dueDateString?: string) => {
-    if (!dueDateString) return null;
-    
-    const dueDate = new Date(dueDateString);
-    const today = new Date();
-    
-    // Reset time component for accurate day calculation
-    today.setHours(0, 0, 0, 0);
-    dueDate.setHours(0, 0, 0, 0);
-    
-    const diffTime = dueDate.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    return diffDays;
-  }, []);
-  
-  // Gebruik useMemo voor afgeleide state om te voorkomen dat deze bij elke render wordt berekend
-  const filteredOrders = useMemo(() => 
-    orders
-      .filter(order => {
-        if (activeTab === 'all') return true;
-        if (activeTab === 'active') {
-          return ['nieuw', 'betaald', 'verzonden'].includes(order.status);
-        }
-        if (activeTab === 'completed') {
-          return ['geleverd', 'geannuleerd'].includes(order.status);
-        }
-        return true;
-      })
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
-    [orders, activeTab]
-  );
+  // Factuur download functie (voorbereiding)
+  const handleDownloadInvoice = async (order: SupabaseOrder) => {
+    try {
+      console.log('[Frontend] Preparing invoice download for order:', order.order_number);
+      
+      // TODO: Implementeer echte factuur download
+      // Voor nu tonen we een placeholder
+      alert(`Factuur download wordt voorbereid voor bestelling ${order.order_number}.\n\nDeze functionaliteit wordt binnenkort beschikbaar gemaakt.`);
+      
+      // Toekomstige implementatie:
+      // const response = await fetch(`/api/orders/${order.id}/invoice`);
+      // const blob = await response.blob();
+      // const url = window.URL.createObjectURL(blob);
+      // const a = document.createElement('a');
+      // a.href = url;
+      // a.download = `factuur-${order.order_number}.pdf`;
+      // a.click();
+      
+    } catch (error) {
+      console.error('[Frontend] Error preparing invoice download:', error);
+      alert('Er is een fout opgetreden bij het voorbereiden van de factuur download.');
+    }
+  };
 
-  // Gebruik useCallback voor render-intensieve functies
-  const getPaymentStatusBadge = useCallback((order: Order) => {
-    const status = getPaymentStatus(order);
-    const daysRemaining = order.paymentDueDate ? calculateDaysRemaining(order.paymentDueDate) : null;
-    
-    switch (status) {
-      case 'paid':
-        return (
-          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-green-100 text-green-800">
-            <svg className="h-4 w-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            Betaald
-          </span>
-        );
-      case 'pending':
-        return (
-          <div>
-            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
-              <svg className="h-4 w-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Betaling open
-            </span>
-            {daysRemaining !== null && (
-              <div className="text-sm mt-1.5 text-yellow-600 font-medium">
-                Nog {daysRemaining} {daysRemaining === 1 ? 'dag' : 'dagen'}
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="flex items-center justify-center min-h-64">
+            <div className="text-center">
+              <div className="relative">
+                <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 border-t-blue-600 mx-auto mb-4"></div>
+                <div className="absolute inset-0 rounded-full h-16 w-16 border-4 border-transparent border-r-blue-400 animate-ping mx-auto"></div>
               </div>
-            )}
-          </div>
-        );
-      case 'expired':
-        return (
-          <div>
-            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-red-100 text-red-800">
-              <svg className="h-4 w-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Betaling te laat
-            </span>
-            {daysRemaining !== null && daysRemaining < 0 && (
-              <div className="text-sm mt-1.5 text-red-600 font-medium">
-                {Math.abs(daysRemaining)} {Math.abs(daysRemaining) === 1 ? 'dag' : 'dagen'} over tijd
-              </div>
-            )}
-          </div>
-        );
-      case 'failed':
-        return (
-          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-red-100 text-red-800">
-            <svg className="h-4 w-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            Betaling mislukt
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
-            Onbekend
-          </span>
-        );
-    }
-  }, [getPaymentStatus, calculateDaysRemaining]);
-
-  const getWasstripsApplicationStatus = useCallback((app: WasstripsApplication) => {
-    // Direct betaald
-    if (app.isPaid) {
-      return 'paid';
-    }
-    
-    // Betaalmethode gekozen maar nog niet betaald
-    if (app.selectedPaymentOption) {
-      // Voor facturen controleren we of de vervaldatum is verstreken
-      if (app.selectedPaymentOption === 'invoice' && app.paymentDueDate) {
-        const dueDate = new Date(app.paymentDueDate);
-        if (dueDate < new Date()) {
-          return 'expired';
-        }
-        return 'pending';
-      }
-      
-      // Voor directe betalingen die nog niet zijn voltooid
-      if (app.selectedPaymentOption === 'direct') {
-        return 'pending';
-      }
-    }
-    
-    // Nog geen betaalmethode gekozen
-    if (app.paymentOptionSent && !app.selectedPaymentOption) {
-      return 'awaiting_selection';
-    }
-    
-    // Standaard status
-    return 'pending';
-  }, []);
-
-  const getWasstripsStatusBadge = useCallback((app: WasstripsApplication) => {
-    const status = getWasstripsApplicationStatus(app);
-    const daysRemaining = app.paymentDueDate ? calculateDaysRemaining(app.paymentDueDate) : null;
-    
-    switch (status) {
-      case 'paid':
-        return (
-          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-green-100 text-green-800">
-            <svg className="h-4 w-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            Betaald
-          </span>
-        );
-      case 'pending':
-        return (
-          <div>
-            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
-              <svg className="h-4 w-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Betaling open
-              {app.selectedPaymentOption === 'invoice' && ' (Factuur)'}
-              {app.selectedPaymentOption === 'direct' && ' (iDEAL)'}
-            </span>
-            {daysRemaining !== null && app.selectedPaymentOption === 'invoice' && (
-              <div className="text-sm mt-1.5 text-yellow-600 font-medium">
-                Nog {daysRemaining} {daysRemaining === 1 ? 'dag' : 'dagen'}
-              </div>
-            )}
-          </div>
-        );
-      case 'expired':
-        return (
-          <div>
-            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-red-100 text-red-800">
-              <svg className="h-4 w-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Betaling te laat
-            </span>
-            {daysRemaining !== null && daysRemaining < 0 && (
-              <div className="text-sm mt-1.5 text-red-600 font-medium">
-                {Math.abs(daysRemaining)} {Math.abs(daysRemaining) === 1 ? 'dag' : 'dagen'} over tijd
-              </div>
-            )}
-          </div>
-        );
-      case 'awaiting_selection':
-        return (
-          <div>
-            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-              <svg className="h-4 w-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              Kies betaalmethode
-            </span>
-            <div className="mt-2">
-              <Link
-                href={`/retailer-dashboard/payment-options/${app.id}`}
-                className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700"
-              >
-                Betaalmethode kiezen
-              </Link>
+              <p className="text-gray-600 font-medium">Orders laden...</p>
+              <p className="text-sm text-gray-500 mt-1">Even geduld, we halen uw bestellingen op</p>
             </div>
           </div>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
-            Onbekend
-          </span>
-        );
-    }
-  }, [getWasstripsApplicationStatus, calculateDaysRemaining]);
-  
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="px-4 py-6 sm:px-0">
-      {/* Toon de factuur betaling waarschuwing indien van toepassing */}
-      {showInvoiceAlert && (
-        <div className="rounded-md bg-amber-50 p-4 mb-6 border border-amber-300 shadow-sm">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-amber-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header met gradient */}
+        <div className="mb-8">
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-8 text-white shadow-xl">
+            <h1 className="text-4xl font-bold mb-2">Mijn Bestellingen</h1>
+            <p className="text-blue-100 text-lg">Volg de status van uw wasstrips bestellingen in realtime</p>
+            <div className="mt-4 flex items-center gap-2">
+              <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
+              <span className="text-sm text-blue-100">Live status updates</span>
             </div>
-            <div className="ml-3 flex-1">
-              <p className="text-sm font-medium text-amber-800">
-                Uw bestelling van Wasstrips kan bij u afgeleverd worden. Betaal nu direct via factuur. {currentInvoiceApp && (
-                  <Link 
-                    href={`/retailer-dashboard/payment-options/${currentInvoiceApp.id}/invoice`} 
-                    className="font-bold underline"
-                  >
-                    Bekijk en betaal nu
-                  </Link>
-                )}
-              </p>
-              <p className="mt-1 text-xs text-amber-600">
-                {minutesSinceAlert} minuten geleden
-              </p>
-            </div>
-            <div className="ml-auto pl-3">
-              <div className="-mx-1.5 -my-1.5">
+          </div>
+        </div>
+
+        {/* Tabs en Filters met verbeterde styling */}
+        <div className="mb-8">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1">
+            <div className="flex justify-between items-center">
+              <nav className="flex space-x-1">
                 <button
-                  onClick={handleDismissAlert}
-                  className="inline-flex bg-amber-50 rounded-md p-1.5 text-amber-500 hover:bg-amber-100 focus:outline-none"
+                  onClick={() => setActiveTab('all')}
+                  className={`py-3 px-6 rounded-lg font-medium text-sm transition-all duration-200 ${
+                    activeTab === 'all'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
                 >
-                  <span className="sr-only">Sluiten</span>
-                  <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  Alle Bestellingen ({orders.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('wasstrips')}
+                  className={`py-3 px-6 rounded-lg font-medium text-sm transition-all duration-200 ${
+                    activeTab === 'wasstrips'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
+                >
+                  Wasstrips ({orders.length})
+                </button>
+              </nav>
+
+              {/* Status Filter met verbeterde styling */}
+              <div className="flex items-center space-x-3">
+                <label className="text-sm font-medium text-gray-600">Filter:</label>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value as any)}
+                  className="text-sm border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                >
+                  <option value="all">Alle ({orders.length})</option>
+                  <option value="pending">💳 Betaling open ({orders.filter(o => o.payment_status === 'pending').length})</option>
+                  <option value="paid">✅ Betaald ({orders.filter(o => o.payment_status === 'paid').length})</option>
+                  <option value="shipped">🚚 Verzonden ({orders.filter(o => o.fulfillment_status === 'shipped').length})</option>
+                </select>
+                
+                {/* Refresh Button */}
+                <button
+                  onClick={handleForceRefresh}
+                  disabled={isLoading}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Ververs bestellingen"
+                >
+                  <svg 
+                    className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round" 
+                      strokeWidth={2} 
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
+                    />
                   </svg>
+                  <span className="ml-1 hidden sm:block">Ververs</span>
                 </button>
               </div>
             </div>
           </div>
         </div>
-      )}
 
-      {/* Toon de waarschuwing alleen als er Wasstrips aanvragen zijn die nog geen betaalmethode hebben gekozen */}
-      {activeTab === 'wasstrips' && 
-       wasstripsApplications.some((app: WasstripsApplication) => app.paymentOptionSent && !app.selectedPaymentOption) && 
-       !wasstripsApplications.some((app: WasstripsApplication) => app.selectedPaymentOption) && 
-       !showInvoiceAlert && (
-        <div className="rounded-md bg-yellow-50 p-4 mb-6 border border-yellow-300 shadow-sm">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+        {/* Content */}
+        {filteredOrders.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="mx-auto h-32 w-32 text-gray-300 mb-6">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-full h-full">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2 2v-5m16 0h-2M4 13h2" />
               </svg>
             </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-yellow-800">Belangrijk over uw bestelling</h3>
-              <div className="mt-2 text-sm text-yellow-700">
-                <p>Bij online betaling worden uw producten verzonden nadat de betaling is ontvangen. <button className="font-semibold underline hover:text-yellow-800 focus:outline-none" onClick={() => alert('Bij directe betaling via iDEAL of creditcard kunnen we uw bestelling meteen verwerken!')}>Waarom?</button></p>
-                <p className="mt-2">Bij keuze voor factuur worden uw Wasstrips direct verzonden. U heeft dan 14 dagen om te betalen. <button className="font-semibold underline hover:text-yellow-800 focus:outline-none" onClick={() => alert('Met factuurbetalingen kunt u de Wasstrips ontvangen en testen voordat u betaalt. Na 14 dagen wordt een betalingsherinnering verstuurd.')}>Hoe werkt factuur?</button></p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      <div className="border-b border-gray-200 pb-5 mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Mijn Bestellingen</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          Bekijk en beheer al uw bestellingen en Wasstrips aanvragen
-        </p>
-      </div>
-      
-      {/* Navigatieknoppen */}
-      <div className="flex space-x-4 mb-6">
-        <button
-          onClick={() => window.history.back()}
-          className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none"
-        >
-          <svg className="h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          Terug
-        </button>
-        <Link
-          href="/retailer-dashboard"
-          className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none"
-        >
-          <svg className="h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-          </svg>
-          Hoofdmenu
-        </Link>
-      </div>
-      
-      {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="-mb-px flex space-x-8">
-          <button
-            onClick={() => setActiveTab('all')}
-            className={`whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'all'
-                ? 'border-pink-500 text-pink-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Alle orders
-          </button>
-          <button
-            onClick={() => setActiveTab('active')}
-            className={`whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'active'
-                ? 'border-pink-500 text-pink-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Actieve orders
-          </button>
-          <button
-            onClick={() => setActiveTab('completed')}
-            className={`whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'completed'
-                ? 'border-pink-500 text-pink-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Afgeronde orders
-          </button>
-          <button
-            onClick={() => setActiveTab('wasstrips')}
-            className={`whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'wasstrips'
-                ? 'border-pink-500 text-pink-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Wasstrips Aanvragen
-            {wasstripsApplications.filter(app => app.paymentOptionSent && !app.selectedPaymentOption).length > 0 && (
-              <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                {wasstripsApplications.filter(app => app.paymentOptionSent && !app.selectedPaymentOption).length}
-              </span>
-            )}
-          </button>
-        </nav>
-      </div>
-      
-      {/* Wasstrips Applicaties Section */}
-      {activeTab === 'wasstrips' && (
-        <div className="mt-8">
-          <div className="flex flex-col">
-            <div className="-my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
-              <div className="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
-                <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg">
-                  {wasstripsApplications.length === 0 ? (
-                    <div className="p-8 text-center">
-                      <p className="text-gray-500 mb-4">U heeft nog geen Wasstrips aanvragen.</p>
-                    </div>
-                  ) : (
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Aanvraag ID
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Bedrijfsnaam
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Datum
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Betaalstatus
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Acties
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {wasstripsApplications.map((app) => (
-                          <tr key={app.id}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {app.id}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {app.businessName}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {app.paymentLinkSentAt ? formatDate(app.paymentLinkSentAt) : 'Onbekend'}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              {getWasstripsStatusBadge(app)}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {app.selectedPaymentOption === 'direct' && !app.isPaid && (
-                                <button
-                                  onClick={() => handlePayNow(
-                                    // Create a temporary Order object with the required fields
-                                    {
-                                      id: app.id,
-                                      created_at: app.paymentLinkSentAt || new Date().toISOString(),
-                                      status: 'nieuw',
-                                      total: 450, // Default price for Wasstrips
-                                      items: [{ 
-                                        id: 'wasstrips-package', 
-                                        product_id: 'wasstrips-package', 
-                                        product_name: 'Wasstrips Pakket', 
-                                        quantity: 1, 
-                                        price: 450 
-                                      }],
-                                      payment_method: 'stripe',
-                                      payment_status: 'pending',
-                                      fulfillment_status: 'pending',
-                                      date: app.paymentLinkSentAt || new Date().toISOString(),
-                                      total_amount: 450,
-                                    } as Order
-                                  )}
-                                  className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-pink-600 hover:bg-pink-700 focus:outline-none"
-                                >
-                                  Nu betalen
-                                </button>
-                              )}
-                              {app.selectedPaymentOption === 'invoice' && !app.isPaid && (
-                                <Link
-                                  href={`/retailer-dashboard/payment-options/${app.id}/invoice`}
-                                  className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
-                                >
-                                  Bekijk factuur
-                                </Link>
-                              )}
-                              {app.paymentOptionSent && !app.selectedPaymentOption && (
-                                <span className="text-gray-500">
-                                  Gebruik de betaalmethode knop in de betaalstatus kolom
-                                </span>
-                              )}
-                              {app.isPaid && (
-                                <span className="text-green-600 font-medium">
-                                  Betaling afgerond
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Regular Orders Section - Keep existing code */}
-      {activeTab !== 'wasstrips' && (
-      <div className="bg-white shadow overflow-hidden rounded-lg">
-        {isLoading ? (
-          <div className="p-6 flex justify-center">
-            <svg className="animate-spin h-8 w-8 text-pink-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-          </div>
-        ) : filteredOrders.length === 0 ? (
-          <div className="p-6 text-center">
-            <p className="text-gray-500">Geen bestellingen gevonden.</p>
-            <div className="mt-4">
+            <h3 className="text-2xl font-bold text-gray-900 mb-3">
+              {orders.length === 0 ? 'Nog geen bestellingen' : 'Geen bestellingen gevonden'}
+            </h3>
+            <p className="text-gray-500 mb-8 max-w-md mx-auto leading-relaxed">
+              {orders.length === 0 
+                ? 'U heeft nog geen wasstrips bestellingen geplaatst. Start vandaag nog met het uitbreiden van uw assortiment!'
+                : 'Er zijn geen bestellingen die voldoen aan de geselecteerde filter.'
+              }
+            </p>
+            {orders.length === 0 && (
               <Link
-                href="/retailer-dashboard/catalog"
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-pink-600 hover:bg-pink-700"
+                href="/retailer-dashboard/wasstrips"
+                className="inline-flex items-center px-8 py-4 border border-transparent text-lg font-medium rounded-xl text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
               >
-                Plaats een bestelling
+                <span className="mr-3 text-xl">🛒</span>
+                Plaats Uw Eerste Bestelling
               </Link>
-            </div>
+            )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Bestelnr.
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Datum
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Betaalstatus
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Bedrag
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Producten
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Track & Trace
-                  </th>
-                  <th scope="col" className="relative px-6 py-3">
-                    <span className="sr-only">Details</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredOrders.map((order) => (
-                  <tr key={order.id} className="bg-white">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      #{order.id}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDate(order.created_at)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeClass(order.status)}`}>
-                        {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {getPaymentStatusBadge(order)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      €{order.total.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {/* Debug log voor tracking code */}
-                      {(() => { console.log(`DEBUG: Rendering tracking code voor ${order.id}:`, order.tracking_code || 'geen'); return null; })()}
-                      {order.items.length} {order.items.length === 1 ? 'product' : 'producten'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {order.tracking_code ? (
-                        <a 
-                          href={order.shipping_provider === 'dhl' 
-                            ? `https://www.dhl.com/nl-nl/home/tracking/tracking-parcel.html?submit=1&tracking-id=${order.tracking_code}` 
-                            : `https://postnl.nl/tracktrace/?B=${order.tracking_code}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800 flex items-center"
-                        >
-                          <svg className="h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                          </svg>
-                          {order.tracking_code}
-                        </a>
-                      ) : (
-                        <span className="text-gray-400">Niet beschikbaar</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center justify-end space-x-2">
-                        {/* Betaal knop (alleen tonen bij openstaande betalingen) */}
-                        {getPaymentStatus(order) === 'pending' || getPaymentStatus(order) === 'expired' ? (
-                          <button
-                            onClick={() => handlePayNow(order)}
-                            className="inline-flex items-center px-3 py-1.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500"
-                          >
-                            <svg className="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                            </svg>
-                            Nu betalen
-                          </button>
-                        ) : null}
-                        
-                        {/* Details knop */}
-                        <button
-                          onClick={() => openOrderDetails(order)}
-                          className="inline-flex items-center px-3 py-1.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                        >
-                          <svg className="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          Details
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {filteredOrders.map((order) => (
+              <OrderListItem
+                key={order.id}
+                order={order}
+                onPayNow={handlePayNow}
+                onViewDetails={handleOrderClick}
+                onDownloadInvoice={handleDownloadInvoice}
+              />
+            ))}
           </div>
         )}
+
+        {/* Order Detail Modal */}
+        {isOrderDetailOpen && selectedOrder && (
+          <OrderDetailModalWithTimeline
+            order={selectedOrder}
+            onClose={() => {
+              setIsOrderDetailOpen(false);
+              setSelectedOrder(null);
+            }}
+            onPayNow={handlePayNow}
+          />
+        )}
       </div>
-      )}
-      
-      {/* Order details modal */}
-      {showDetails && selectedOrder && (
-        <OrderDetailsModal order={selectedOrder} onClose={closeOrderDetails} />
-      )}
     </div>
   );
 } 

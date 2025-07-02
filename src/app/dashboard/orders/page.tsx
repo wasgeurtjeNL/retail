@@ -7,14 +7,15 @@ import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import { useAuth } from '@/contexts/AuthContext';
-import { getOrders, updateOrder, deleteOrder, Order } from '@/lib/supabase';
+import { getOrders, updateOrder, deleteOrder, Order, getWasstripsOrders, WasstripsApplication, updateWasstripsApplication, updateWasstripsApplicationWithOrderDetails } from '@/lib/supabase';
 
 // Status definities met labels en kleuren voor een consistent uiterlijk
 const FULFILLMENT_STATUSES = {
   pending: { label: 'Te verzenden', color: 'yellow' },
-  processing: { label: 'In behandeling', color: 'blue' },
+  processing: { label: 'Wacht op betaalmethode', color: 'blue' },
   shipped: { label: 'Verzonden', color: 'green' },
   delivered: { label: 'Afgeleverd', color: 'indigo' },
+  cancelled: { label: 'Geannuleerd', color: 'red' },
   canceled: { label: 'Geannuleerd', color: 'red' }
 };
 
@@ -78,6 +79,9 @@ export default function OrdersPage() {
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   
+  // State voor wasstrips order ready
+  const [sendingOrderReady, setSendingOrderReady] = useState<string | null>(null);
+  
   // Laad bestellingen
   const loadOrders = async () => {
     setIsLoading(true);
@@ -89,21 +93,106 @@ export default function OrdersPage() {
       
       console.log('[DEBUG] loadOrders wordt uitgevoerd met filter:', statusFilter);
       
-      // Haal bestellingen op
-      const result = await getOrders(undefined, fulfillmentStatus);
+      // Haal reguliere bestellingen op
+      const regularOrdersResult = await getOrders(undefined, fulfillmentStatus);
       
-      console.log('[DEBUG] getOrders resultaat:', {
-        success: !result.error,
-        aantalOrders: result.orders?.length || 0,
-        orderIds: result.orders?.map(o => o.id).join(', ')
+      // Haal wasstrips applicaties op (alleen die met betaalde aanbetaling)
+      const wasstripsResult = await getWasstripsOrders('paid');
+      
+      console.log('[DEBUG] Regular orders resultaat:', {
+        success: !regularOrdersResult.error,
+        aantalOrders: regularOrdersResult.orders?.length || 0
       });
       
-      if (result.error) {
-        console.error('Error loading orders:', result.error);
-        setOrders([]);
-      } else {
-        setOrders(result.orders);
+      console.log('[DEBUG] Wasstrips orders resultaat:', {
+        success: !wasstripsResult.error,
+        aantalOrders: wasstripsResult.orders?.length || 0
+      });
+      
+      // Combineer beide resultaten
+      const allOrders: Order[] = [];
+      
+      // Voeg reguliere orders toe
+      if (!regularOrdersResult.error && regularOrdersResult.orders) {
+        allOrders.push(...regularOrdersResult.orders);
       }
+      
+              // Converteer wasstrips applicaties naar Order format
+        if (!wasstripsResult.error && wasstripsResult.orders) {
+          console.log('[DEBUG] Converting wasstrips orders:', wasstripsResult.orders);
+          console.log('[DEBUG] First wasstrips order profiles:', wasstripsResult.orders[0]?.profiles);
+          
+          const convertedWasstripsOrders: Order[] = wasstripsResult.orders.map((app: WasstripsApplication) => {
+            console.log('[DEBUG] Converting app:', app.id, 'profiles:', app.profiles);
+            return {
+              id: app.id,
+              order_number: `WS-${app.id.slice(0, 8)}`,
+              retailer_id: app.profile_id,
+              profile_id: app.profile_id,
+              status: app.status as Order['status'],
+              payment_status: app.deposit_status === 'paid' ? 'paid' : 'pending' as Order['payment_status'],
+              payment_method: 'credit_card' as Order['payment_method'],
+              stripe_session_id: undefined,
+              stripe_payment_intent_id: undefined,
+              subtotal: Number(app.total_amount) || 0,
+              shipping_cost: 0,
+              tax_amount: 0,
+              total_amount: Number(app.total_amount) || 0,
+              shipping_address: undefined,
+              shipping_city: undefined,
+              shipping_postal_code: undefined,
+              shipping_country: undefined,
+              billing_address: undefined,
+              billing_city: undefined,
+              billing_postal_code: undefined,
+              billing_country: undefined,
+              tracking_code: app.tracking_code,
+              notes: app.notes,
+              metadata: { 
+                order_type: 'wasstrips',
+                deposit_amount: app.deposit_amount,
+                deposit_paid_at: app.deposit_paid_at,
+                payment_options_sent: app.payment_options_sent,
+                payment_options_sent_at: app.payment_options_sent_at,
+                payment_method_selected: app.payment_method_selected,
+                payment_method_selected_at: app.payment_method_selected_at
+              },
+              created_at: app.created_at,
+              updated_at: app.updated_at,
+              fulfillment_status: (
+                app.status === 'pending' ? 'pending' :
+                app.status === 'approved' && !app.payment_method_selected ? 'processing' :
+                app.status === 'order_ready' && !app.payment_method_selected ? 'processing' :
+                app.status === 'payment_selected' || app.payment_method_selected ? 'pending' :
+                app.status === 'shipped' ? 'shipped' :
+                'processing'
+              ) as Order['fulfillment_status'],
+              shipping_provider: 'postnl' as 'postnl' | 'dhl',
+              profiles: Array.isArray(app.profiles) 
+                ? app.profiles[0] || { email: 'Onbekend', company_name: 'Onbekende retailer' }
+                : app.profiles || { email: 'Onbekend', company_name: 'Onbekende retailer' }
+            };
+          });
+          
+          console.log('[DEBUG] Converted wasstrips orders:', convertedWasstripsOrders);
+          allOrders.push(...convertedWasstripsOrders);
+        }
+      
+      // Filter op fulfillment status als nodig
+      const filteredOrders = fulfillmentStatus 
+        ? allOrders.filter(order => order.fulfillment_status === fulfillmentStatus)
+        : allOrders;
+      
+      // Sorteer op datum (nieuwste eerst)
+      filteredOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      
+      console.log('[DEBUG] Totaal gecombineerde orders:', {
+        aantal: filteredOrders.length,
+        wasstripsOrders: filteredOrders.filter(o => o.metadata?.order_type === 'wasstrips').length,
+        reguliereOrders: filteredOrders.filter(o => !o.metadata?.order_type).length
+      });
+      
+      setOrders(filteredOrders);
     } catch (error) {
       console.error('Unexpected error loading orders:', error);
       setOrders([]);
@@ -119,38 +208,11 @@ export default function OrdersPage() {
     }
   }, [authLoading, user, isAdmin, statusFilter]);
   
-  // Functie om tracking code te synchroniseren naar retailer orders
-  const syncTrackingCodeToRetailerOrders = (orderId: string, trackingCode: string, provider: 'postnl' | 'dhl') => {
-    try {
-      const retailerOrdersString = localStorage.getItem('retailerOrders');
-      if (retailerOrdersString) {
-        const retailerOrders = JSON.parse(retailerOrdersString);
-        
-        // Update de tracking code voor de juiste retailer order
-        const updatedRetailerOrders = retailerOrders.map((order: any) => 
-          order.id === orderId 
-            ? { 
-                ...order, 
-                tracking_code: trackingCode, 
-                shipping_provider: provider,
-                fulfillment_status: 'shipped' 
-              } 
-            : order
-        );
-        
-        localStorage.setItem('retailerOrders', JSON.stringify(updatedRetailerOrders));
-        console.log(`DEBUG: Tracking code ${trackingCode} en verzendmethode ${provider} gesynchroniseerd naar retailer order ${orderId}`);
-      }
-    } catch (error) {
-      console.error('Fout bij synchroniseren van tracking code:', error);
-    }
-  };
-  
   // Open het bewerkingsmodal voor een bestelling
   const handleEditOrder = (order: Order) => {
     setEditingOrder(order);
     setOrderNotes(order.notes || '');
-    setSelectedFulfillmentStatus(order.fulfillment_status);
+    setSelectedFulfillmentStatus(order.fulfillment_status || 'pending');
     setTrackingCode(order.tracking_code || '');
     setShippingProvider((order.shipping_provider as 'postnl' | 'dhl') || 'postnl'); // Gebruik de bestaande provider of standaard PostNL
   };
@@ -159,7 +221,7 @@ export default function OrdersPage() {
   const handleCloseModal = () => {
     setEditingOrder(null);
     setOrderNotes('');
-    setSelectedFulfillmentStatus('');
+    setSelectedFulfillmentStatus('pending');
     setTrackingCode('');
     setShippingProvider('postnl');
   };
@@ -197,6 +259,37 @@ export default function OrdersPage() {
       setIsDeleting(false);
     }
   };
+
+  // Handler voor het versturen van "bestelling binnen" melding voor wasstrips
+  const handleSendOrderReady = async (applicationId: string) => {
+    setSendingOrderReady(applicationId);
+    
+    try {
+      const response = await fetch('/api/wasstrips-applications/send-order-ready', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ applicationId }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Er is een fout opgetreden bij het versturen van de melding.');
+      }
+      
+      console.log('Order ready notification sent successfully');
+      // Refresh de orders lijst om de nieuwe status te tonen
+      await loadOrders();
+      
+    } catch (error) {
+      console.error('Error sending order ready notification:', error);
+      alert(error instanceof Error ? error.message : 'Er is een onverwachte fout opgetreden.');
+    } finally {
+      setSendingOrderReady(null);
+    }
+  };
   
   // Sla de wijzigingen op
   const handleSaveOrder = async () => {
@@ -204,61 +297,136 @@ export default function OrdersPage() {
     
     setIsSaving(true);
     try {
+      console.log('[handleSaveOrder] Starting save for order:', editingOrder.id);
+      console.log('[handleSaveOrder] Order metadata:', editingOrder.metadata);
+      
+      // Check if this is a wasstrips order
+      const isWasstripsOrder = editingOrder.metadata?.order_type === 'wasstrips';
+      console.log('[handleSaveOrder] Is wasstrips order:', isWasstripsOrder);
+      
       // Bereid updates voor
       const updates: Partial<Pick<Order, 'fulfillment_status' | 'notes' | 'tracking_code' | 'shipping_provider'>> = {};
       
       // Voeg alleen gewijzigde velden toe
       if (selectedFulfillmentStatus !== editingOrder.fulfillment_status) {
         updates.fulfillment_status = selectedFulfillmentStatus as Order['fulfillment_status'];
+        console.log('[handleSaveOrder] Fulfillment status changed from', editingOrder.fulfillment_status, 'to', selectedFulfillmentStatus);
       }
       
       if (orderNotes !== editingOrder.notes) {
         updates.notes = orderNotes;
+        console.log('[handleSaveOrder] Notes changed');
       }
       
       if (trackingCode !== editingOrder.tracking_code) {
         updates.tracking_code = trackingCode;
+        console.log('[handleSaveOrder] Tracking code changed to:', trackingCode);
         
         // Als tracking code is ingevuld, update ook status naar verzonden
         if (trackingCode && selectedFulfillmentStatus !== 'shipped') {
           updates.fulfillment_status = 'shipped';
           setSelectedFulfillmentStatus('shipped');
+          console.log('[handleSaveOrder] Auto-updating status to shipped due to tracking code');
         }
       }
 
       if (shippingProvider !== editingOrder.shipping_provider) {
         updates.shipping_provider = shippingProvider;
+        console.log('[handleSaveOrder] Shipping provider changed to:', shippingProvider);
       }
       
       // Als er niets is gewijzigd, sluit het modal
       if (Object.keys(updates).length === 0) {
+        console.log('[handleSaveOrder] No changes detected, closing modal');
         handleCloseModal();
         return;
       }
       
-      // Update de bestelling
-      const result = await updateOrder(editingOrder.id, updates);
+      console.log('[handleSaveOrder] Prepared updates:', updates);
       
-      if (result.error) {
-        console.error('Error updating order:', result.error);
-        alert('Er is een fout opgetreden bij het bijwerken van de bestelling. Probeer het opnieuw.');
-      } else {
-        // Als er een tracking code is ingevuld, synchroniseer deze naar retailer orders
-        if (trackingCode) {
-          syncTrackingCodeToRetailerOrders(
-            editingOrder.id, 
-            trackingCode, 
-            shippingProvider as 'postnl' | 'dhl'
-          );
+      let result: { order?: any; error?: any };
+      
+      if (isWasstripsOrder) {
+        // Voor wasstrips orders, update de wasstrips_applications tabel
+        console.log('[handleSaveOrder] Updating wasstrips application...');
+        
+        // Map de order updates naar wasstrips application updates
+        const wasstripsUpdates: any = {};
+        
+        if (updates.notes !== undefined) {
+          wasstripsUpdates.notes = updates.notes;
         }
         
-        // Vernieuw de bestellingen
+        if (updates.tracking_code !== undefined) {
+          wasstripsUpdates.tracking_code = updates.tracking_code;
+        }
+        
+        // Map fulfillment status naar wasstrips status
+        if (updates.fulfillment_status) {
+          switch (updates.fulfillment_status) {
+            case 'shipped':
+              wasstripsUpdates.status = 'shipped';
+              break;
+            case 'delivered':
+              wasstripsUpdates.status = 'shipped'; // Wasstrips heeft geen delivered status
+              break;
+            case 'pending':
+              wasstripsUpdates.status = 'payment_selected';
+              break;
+            case 'processing':
+              wasstripsUpdates.status = 'order_ready';
+              break;
+            default:
+              wasstripsUpdates.status = 'payment_selected';
+          }
+        }
+        
+        console.log('[handleSaveOrder] Wasstrips updates:', wasstripsUpdates);
+        
+        // Use updateWasstripsApplication for wasstrips orders
+        const wasstripsResult = await updateWasstripsApplication(editingOrder.id, wasstripsUpdates);
+        result = { error: wasstripsResult.error, order: wasstripsResult.application || 'updated' };
+        
+      } else {
+        // Voor reguliere orders, gebruik de normale updateOrder functie
+        console.log('[handleSaveOrder] Updating regular order...');
+        result = await updateOrder(editingOrder.id, updates);
+      }
+      
+      if (result.error) {
+        console.error('[handleSaveOrder] Error from update function:', result.error);
+        let errorMessage = 'Onbekende fout';
+        if (typeof result.error === 'string') {
+          errorMessage = result.error;
+        } else if (result.error && typeof result.error === 'object') {
+          errorMessage = (result.error as any).message || JSON.stringify(result.error);
+        }
+        alert(`Er is een fout opgetreden bij het bijwerken van de bestelling: ${errorMessage}`);
+      } else {
+        console.log('[handleSaveOrder] Order updated successfully:', result.order || result || 'wasstrips application updated');
+        
+        // Force refresh van de bestellingen lijst
+        console.log('[handleSaveOrder] Force refreshing orders list...');
+        setIsLoading(true);
+        
+        // Kleine vertraging voor visuele feedback
+        await new Promise(resolve => setTimeout(resolve, 300));
         await loadOrders();
+        setIsLoading(false);
+        
         handleCloseModal();
+        
+        // Toon gedetailleerd succes bericht
+        const updateType = isWasstripsOrder ? 'Wasstrips bestelling' : 'Bestelling';
+        const statusText = trackingCode ? 'verzonden' : 'bijgewerkt';
+        const trackingText = trackingCode ? `\nTracking code: ${trackingCode}\nVervoerder: ${shippingProvider?.toUpperCase()}` : '';
+        
+        alert(`✅ ${updateType} succesvol ${statusText}!${trackingText}\n\nDe status is automatisch bijgewerkt in het retailer dashboard.`);
       }
     } catch (error) {
-      console.error('Unexpected error updating order:', error);
-      alert('Er is een onverwachte fout opgetreden. Probeer het opnieuw.');
+      console.error('[handleSaveOrder] Unexpected error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Onbekende fout';
+      alert(`Er is een onverwachte fout opgetreden: ${errorMessage}`);
     } finally {
       setIsSaving(false);
     }
@@ -392,7 +560,7 @@ export default function OrdersPage() {
                     <option value="processing">In behandeling</option>
                     <option value="shipped">Verzonden</option>
                     <option value="delivered">Afgeleverd</option>
-                    <option value="canceled">Geannuleerd</option>
+                    <option value="cancelled">Geannuleerd</option>
                   </select>
                 </div>
               </div>
@@ -461,13 +629,23 @@ export default function OrdersPage() {
                           orders.map((order) => (
                             <tr key={order.id} className="hover:bg-gray-50">
                               <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
-                                {order.id}
+                                <div className="flex flex-col">
+                                  <span>{order.order_number || order.id}</span>
+                                  {order.metadata?.order_type === 'wasstrips' && (
+                                    <span className="text-xs text-blue-600 font-medium">Wasstrips</span>
+                                  )}
+                                </div>
                               </td>
                               <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                                {order.retailer_business_name || `Retailer ID: ${order.retailer_id}`}
+                                <div className="flex flex-col">
+                                  <span>{order.profiles?.company_name || `Retailer ID: ${order.retailer_id || 'Onbekend'}`}</span>
+                                  {order.profiles?.email && (
+                                    <span className="text-xs text-gray-400">{order.profiles.email}</span>
+                                  )}
+                                </div>
                               </td>
                               <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                                {new Date(order.date).toLocaleDateString('nl-NL')}
+                                {new Date(order.created_at).toLocaleDateString('nl-NL')}
                               </td>
                               <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                                 €{order.total_amount.toFixed(2)}
@@ -475,14 +653,22 @@ export default function OrdersPage() {
                               <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                                 <div className="flex flex-col space-y-1">
                                   <span className="text-xs text-gray-500">
-                                    {order.payment_method === 'stripe' ? 'Stripe' : 'Factuur'}
+                                    {order.metadata?.order_type === 'wasstrips' 
+                                      ? `Aanbetaling €${order.metadata.deposit_amount || 30}` 
+                                      : (order.payment_method === 'credit_card' ? 'Stripe' : 'Factuur')
+                                    }
                                   </span>
-                                  <StatusBadge status={order.payment_status} type="payment" />
+                                  <StatusBadge status={order.payment_status || 'pending'} type="payment" />
+                                  {order.metadata?.order_type === 'wasstrips' && order.metadata.deposit_paid_at && (
+                                    <span className="text-xs text-green-600">
+                                      Betaald: {new Date(order.metadata.deposit_paid_at).toLocaleDateString('nl-NL')}
+                                    </span>
+                                  )}
                                 </div>
                               </td>
                               <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                                 <div className="flex flex-col space-y-1">
-                                  <StatusBadge status={order.fulfillment_status} type="fulfillment" />
+                                  <StatusBadge status={order.fulfillment_status || 'pending'} type="fulfillment" />
                                   {order.tracking_code && (
                                     <span className="text-xs text-green-600 mt-1">{order.tracking_code}</span>
                                   )}
@@ -490,18 +676,74 @@ export default function OrdersPage() {
                               </td>
                               <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                                 <div className="flex justify-end space-x-2">
-                                  <button
-                                    onClick={() => handleEditOrder(order)}
-                                    className="text-green-600 hover:text-green-900"
-                                  >
-                                    Bewerken<span className="sr-only">, order {order.id}</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteOrder(order.id)}
-                                    className="text-red-600 hover:text-red-900"
-                                  >
-                                    Verwijderen<span className="sr-only">, order {order.id}</span>
-                                  </button>
+                                  {/* Wasstrips specific buttons */}
+                                  {order.metadata?.order_type === 'wasstrips' ? (
+                                    <>
+                                      {/* Show "Bestelling Binnen" button only if deposit is paid but order ready email not sent yet */}
+                                      {order.payment_status === 'paid' && !order.metadata.payment_options_sent && (
+                                        <button
+                                          onClick={() => handleSendOrderReady(order.id)}
+                                          disabled={sendingOrderReady === order.id}
+                                          className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                          {sendingOrderReady === order.id ? (
+                                            <>
+                                              <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                              </svg>
+                                              Versturen...
+                                            </>
+                                          ) : (
+                                            '📧 Bestelling Binnen'
+                                          )}
+                                        </button>
+                                      )}
+                                      
+                                      {/* Show shipping button only if payment method is selected AND status is ready to ship */}
+                                      {order.metadata.payment_method_selected && order.fulfillment_status === 'pending' && (
+                                        <button
+                                          onClick={() => handleEditOrder(order)}
+                                          className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                                        >
+                                          📦 Verzenden
+                                        </button>
+                                      )}
+                                      
+                                      {/* Show status info if waiting for payment method selection */}
+                                      {order.metadata.payment_options_sent && !order.metadata.payment_method_selected && (
+                                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                          ⏳ Wacht op betaalmethode
+                                        </span>
+                                      )}
+                                      
+                                      {/* Regular edit button for other states - only show if no other buttons are visible */}
+                                      {!order.metadata.payment_options_sent && !order.metadata.payment_method_selected && (
+                                        <button
+                                          onClick={() => handleEditOrder(order)}
+                                          className="text-green-600 hover:text-green-900"
+                                        >
+                                          Bekijken<span className="sr-only">, order {order.id}</span>
+                                        </button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    /* Regular order buttons */
+                                    <>
+                                      <button
+                                        onClick={() => handleEditOrder(order)}
+                                        className="text-green-600 hover:text-green-900"
+                                      >
+                                        Bewerken<span className="sr-only">, order {order.id}</span>
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteOrder(order.id)}
+                                        className="text-red-600 hover:text-red-900"
+                                      >
+                                        Verwijderen<span className="sr-only">, order {order.id}</span>
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -552,7 +794,7 @@ export default function OrdersPage() {
                           <option value="processing">In behandeling</option>
                           <option value="shipped">Verzonden</option>
                           <option value="delivered">Afgeleverd</option>
-                          <option value="canceled">Geannuleerd</option>
+                          <option value="cancelled">Geannuleerd</option>
                         </select>
                       </div>
 

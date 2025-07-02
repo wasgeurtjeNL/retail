@@ -1,20 +1,26 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 import { useAuth } from "@/contexts/AuthContext";
 import { clearPersistentAuthIfNeeded } from "@/lib/supabase";
+
+// Import components dynamically to avoid potential build issues
+import dynamic from 'next/dynamic';
+
+const Navbar = dynamic(() => import("@/components/Navbar"), { ssr: false });
+const Footer = dynamic(() => import("@/components/Footer"), { ssr: false });
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login, user, isAdmin, isRetailer } = useAuth();
 
   useEffect(() => {
@@ -22,7 +28,16 @@ export default function LoginPage() {
     if (typeof window !== 'undefined') {
       clearPersistentAuthIfNeeded();
     }
-  }, []);
+    
+    // Check for success message in URL params
+    const message = searchParams.get('message');
+    if (message) {
+      setSuccessMessage(message);
+      // Remove message from URL after showing it
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (user && isAdmin) {
@@ -68,6 +83,12 @@ export default function LoginPage() {
                 Inloggen
               </h2>
               <div className="w-16 h-1 bg-pink-500 mx-auto mb-8"></div>
+              
+              {successMessage && (
+                <div className="mb-4 p-3 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-md">
+                  <p>{successMessage}</p>
+                </div>
+              )}
               
               {error && (
                 <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md">

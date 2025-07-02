@@ -58,13 +58,23 @@ export default function OrderConfirmationPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   
   useEffect(() => {
-    // Check if we have returned from Stripe with a session_id
+    // Check if we have returned from Stripe with a session_id and order_id
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('session_id');
+    const orderId = params.get('order_id');
+    
+    console.log('[Confirmation] URL params:', { sessionId, orderId });
+    
+    // Als we een order_id hebben van een wasstrips order, laad dan die specifieke order
+    if (orderId && orderId.startsWith('WS-')) {
+      console.log('[Confirmation] Loading wasstrips order:', orderId);
+      loadWasstripsOrder(orderId, sessionId);
+      return;
+    }
     
     if (!localStorage) return;
     
-    // Try to get the last order from localStorage
+    // Try to get the last order from localStorage (voor catalogus orders)
     const lastOrderJson = localStorage.getItem('lastOrder');
     
     if (!lastOrderJson) {
@@ -118,6 +128,118 @@ export default function OrderConfirmationPage() {
       }
     }
   }, []);
+  
+  // Nieuwe functie om wasstrips order te laden
+  const loadWasstripsOrder = async (orderId: string, sessionId: string | null) => {
+    try {
+      console.log('[Confirmation] Loading wasstrips order from database:', orderId);
+      
+      // Update de wasstrips application status in de database
+      if (sessionId) {
+        await updateWasstripsPaymentStatus(orderId, sessionId);
+      }
+      
+      // Haal de wasstrips order op uit de database
+      // Voor nu simuleren we dit met localStorage data, maar dit zou een API call moeten zijn
+      const stripeOrderJson = localStorage.getItem('stripeOrder');
+      
+      if (stripeOrderJson) {
+        const stripeOrder = JSON.parse(stripeOrderJson);
+        console.log('[Confirmation] Found stripe order in localStorage:', stripeOrder);
+        
+        // Converteer naar OrderDetails format
+        const orderDetails: OrderDetails = {
+          id: orderId,
+          totalAmount: stripeOrder.totalAmount || 270, // Gebruik het correcte restbedrag
+          items: [{
+            id: 'wasstrips-starter',
+            name: 'Wasstrips Starterpakket',
+            quantity: 1,
+            price: stripeOrder.totalAmount || 270,
+            image_url: '/assets/images/wasstrips-product.jpg'
+          }],
+          date: new Date().toISOString(),
+          paymentMethod: 'stripe',
+          paymentStatus: sessionId ? 'paid' : 'pending',
+          stripeSessionId: sessionId || undefined
+        };
+        
+        console.log('[Confirmation] Created wasstrips order details:', orderDetails);
+        
+        setOrderDetails(orderDetails);
+        setIsLoaded(true);
+        
+        // Sla op voor geschiedenis
+        addOrderToHistory(orderDetails);
+        
+        // Clear de stripe order uit localStorage
+        localStorage.removeItem('stripeOrder');
+      } else {
+        console.warn('[Confirmation] No stripe order found in localStorage');
+        // Maak een fallback wasstrips order
+        const fallbackOrder: OrderDetails = {
+          id: orderId,
+          totalAmount: 270, // Restbedrag voor wasstrips
+          items: [{
+            id: 'wasstrips-starter',
+            name: 'Wasstrips Starterpakket',
+            quantity: 1,
+            price: 270,
+            image_url: '/assets/images/wasstrips-product.jpg'
+          }],
+          date: new Date().toISOString(),
+          paymentMethod: 'stripe',
+          paymentStatus: sessionId ? 'paid' : 'pending',
+          stripeSessionId: sessionId || undefined
+        };
+        
+        setOrderDetails(fallbackOrder);
+        setIsLoaded(true);
+        addOrderToHistory(fallbackOrder);
+      }
+    } catch (error) {
+      console.error('[Confirmation] Error loading wasstrips order:', error);
+      // Fallback naar demo order
+      const demoOrder = createDemoOrder();
+      setOrderDetails(demoOrder);
+      setIsLoaded(true);
+    }
+  };
+  
+  // Functie om wasstrips payment status bij te werken in de database
+  const updateWasstripsPaymentStatus = async (orderId: string, sessionId: string) => {
+    try {
+      console.log('[Confirmation] Updating wasstrips payment status:', orderId);
+      
+      // API call naar de backend om de database bij te werken
+      const response = await fetch('/api/wasstrips-applications', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          orderId,
+          sessionId,
+          paymentStatus: 'paid'
+        }),
+      });
+      
+      console.log('[Confirmation] API response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[Confirmation] API error response:', errorText);
+        throw new Error(`API error: ${response.status} - ${errorText}`);
+      }
+      
+      const result = await response.json();
+      console.log('[Confirmation] Payment status updated successfully:', result);
+      
+    } catch (error) {
+      console.error('[Confirmation] Error updating wasstrips payment status:', error);
+      // Don't throw the error - we still want to show the confirmation even if the update fails
+    }
+  };
   
   // Helper functie om orders toe te voegen aan de geschiedenis
   const addOrderToHistory = (order: OrderDetails) => {

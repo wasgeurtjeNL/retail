@@ -8,16 +8,26 @@ import Breadcrumbs from "@/components/Breadcrumbs";
 import { useAuth } from "@/contexts/AuthContext";
 import { getPendingRetailers, getApprovedRetailers, Retailer } from "@/lib/supabase";
 
+// --- UITBREIDING: Voeg metadata toe aan Retailer type voor aanvullende info ---
+type RetailerWithMetadata = Retailer & { metadata?: Record<string, any> };
+
+// Haal verwijderde retailers op uit de API
+async function getDeletedRetailers() {
+  const res = await fetch('/api/retailers/deleted');
+  if (!res.ok) throw new Error('Fout bij ophalen van verwijderde retailers');
+  return res.json();
+}
+
 export default function RetailerManagementPage() {
   const { user, isLoading: authLoading, isAdmin } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
-  const [retailers, setRetailers] = useState<Retailer[]>([]);
+  const [retailers, setRetailers] = useState<RetailerWithMetadata[]>([]);
   const [activeTab, setActiveTab] = useState<'pending' | 'all'>('pending');
   const [updateLoading, setUpdateLoading] = useState<string | null>(null);
-  const [selectedRetailer, setSelectedRetailer] = useState<Retailer | null>(null);
+  const [selectedRetailer, setSelectedRetailer] = useState<RetailerWithMetadata | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  const [actionType, setActionType] = useState<'approve' | 'reject' | 'delete'>('approve');
+  const [actionType, setActionType] = useState<'approve' | 'reject' | 'delete' | 'info' | 'profile'>('approve');
   
   useEffect(() => {
     const loadRetailers = async () => {
@@ -70,7 +80,7 @@ export default function RetailerManagementPage() {
     }
   };
   
-  const openConfirmModal = (retailer: Retailer, action: 'approve' | 'reject' | 'delete') => {
+  const openConfirmModal = (retailer: RetailerWithMetadata, action: 'approve' | 'reject' | 'delete' | 'info' | 'profile') => {
     setSelectedRetailer(retailer);
     setActionType(action);
     setRejectReason('');
@@ -168,6 +178,10 @@ export default function RetailerManagementPage() {
         handleUpdateStatus(selectedRetailer.id, actionType === 'approve' ? 'approved' : 'rejected');
       } else if (actionType === 'delete') {
         handleDeleteRetailer(selectedRetailer.id);
+      } else if (actionType === 'info') {
+        // Handle info action
+      } else if (actionType === 'profile') {
+        // Handle profile action
       }
     }
   };
@@ -206,6 +220,41 @@ export default function RetailerManagementPage() {
     } finally {
       setUpdateLoading(null);
       closeModal();
+    }
+  };
+
+  // Stuur nieuwe activatiemail naar retailer
+  const handleResendActivation = async (retailerId: string) => {
+    console.log('[RESEND ACTIVATION] Starting resend for retailer:', retailerId);
+    setUpdateLoading(retailerId);
+    
+    try {
+      const response = await fetch('/api/retailers/resend-activation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          retailerId: retailerId
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Fout bij versturen activatiemail');
+      }
+      
+      const result = await response.json();
+      console.log('[RESEND ACTIVATION] Success:', result);
+      
+      alert('Nieuwe activatiemail succesvol verzonden!');
+      
+    } catch (error) {
+      console.error('[RESEND ACTIVATION] Error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Onbekende fout opgetreden';
+      alert(`Fout bij versturen activatiemail: ${errorMessage}`);
+    } finally {
+      setUpdateLoading(null);
     }
   };
 
@@ -272,26 +321,16 @@ export default function RetailerManagementPage() {
                   </svg>
                   Verversen
                 </button>
-                <div className="flex rounded-md shadow-sm">
+                <div className="flex space-x-4 border-b mb-6 mt-4">
                   <button
-                    type="button"
+                    className={`py-2 px-4 ${activeTab === 'pending' ? 'border-b-2 border-pink-600 font-bold text-pink-700' : 'text-gray-700'}`}
                     onClick={() => setActiveTab('pending')}
-                    className={`inline-flex items-center px-4 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium ${
-                      activeTab === 'pending'
-                        ? 'text-pink-700 bg-pink-50 border-pink-300'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
                   >
                     In Behandeling
                   </button>
                   <button
-                    type="button"
+                    className={`py-2 px-4 ${activeTab === 'all' ? 'border-b-2 border-blue-600 font-bold text-blue-700' : 'text-gray-700'}`}
                     onClick={() => setActiveTab('all')}
-                    className={`inline-flex items-center px-4 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium ${
-                      activeTab === 'all'
-                        ? 'text-pink-700 bg-pink-50 border-pink-300'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
                   >
                     Goedgekeurde Retailers
                   </button>
@@ -338,6 +377,9 @@ export default function RetailerManagementPage() {
                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                               Aanvraagdatum
                             </th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Profiel
+                            </th>
                             <th scope="col" className="relative px-6 py-3">
                               <span className="sr-only">Acties</span>
                             </th>
@@ -379,6 +421,19 @@ export default function RetailerManagementPage() {
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                 {new Date(retailer.created_at).toLocaleDateString('nl-NL')}
                               </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                                <button
+                                  onClick={() => {
+                                    setSelectedRetailer(retailer);
+                                    setActionType('profile');
+                                    setIsModalOpen(true);
+                                  }}
+                                  className="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-200"
+                                  title="Bekijk volledig profiel"
+                                >
+                                  Profiel
+                                </button>
+                              </td>
                               <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                 {retailer.status === 'pending' && (
                                   <div className="flex justify-end space-x-2">
@@ -407,7 +462,19 @@ export default function RetailerManagementPage() {
                                   </div>
                                 )}
                                 {retailer.status !== 'pending' && (
-                                  <div className="flex justify-end">
+                                  <div className="flex justify-end space-x-2">
+                                    <button
+                                      onClick={() => handleResendActivation(retailer.id)}
+                                      disabled={updateLoading === retailer.id}
+                                      className={`inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white ${
+                                        updateLoading === retailer.id
+                                          ? 'bg-gray-300 cursor-not-allowed'
+                                          : 'bg-blue-600 hover:bg-blue-700'
+                                      }`}
+                                      title="Stuur nieuwe activatiemail"
+                                    >
+                                      📧 Activatie
+                                    </button>
                                     <button
                                       onClick={() => openConfirmModal(retailer, 'delete')}
                                       disabled={updateLoading === retailer.id}
@@ -449,15 +516,26 @@ export default function RetailerManagementPage() {
                   <h3 className="text-lg leading-6 font-medium text-gray-900" id="modal-title">
                     {actionType === 'approve' ? 'Retailer goedkeuren' : 
                      actionType === 'reject' ? 'Retailer afwijzen' : 
-                     'Retailer verwijderen'}
+                     actionType === 'delete' ? 'Retailer verwijderen' :
+                     'Retailer Profiel'}
                   </h3>
                   <div className="mt-2">
+                    {selectedRetailer.metadata?.message && (
+                      <div className="mt-4 text-left">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Aanvullende informatie van retailer</label>
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded text-gray-900 whitespace-pre-line">
+                          {selectedRetailer.metadata.message}
+                        </div>
+                      </div>
+                    )}
                     <p className="text-sm text-gray-500">
                       {actionType === 'approve'
                         ? `Weet je zeker dat je ${selectedRetailer.business_name} wilt goedkeuren? Ze krijgen dan toegang tot het retailer dashboard.`
                         : actionType === 'reject'
                         ? `Weet je zeker dat je ${selectedRetailer.business_name} wilt afwijzen?`
-                        : `Weet je zeker dat je ${selectedRetailer.business_name} permanent wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.`
+                        : actionType === 'delete'
+                        ? `Weet je zeker dat je ${selectedRetailer.business_name} permanent wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.`
+                        : ''
                       }
                     </p>
                     
@@ -494,10 +572,12 @@ export default function RetailerManagementPage() {
                       ? 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
                       : actionType === 'reject'
                       ? 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
+                      : actionType === 'delete'
+                      ? 'bg-gray-600 hover:bg-gray-700 focus:ring-gray-500'
                       : 'bg-gray-600 hover:bg-gray-700 focus:ring-gray-500'
                   } focus:outline-none focus:ring-2 focus:ring-offset-2`}
                 >
-                  {actionType === 'approve' ? 'Goedkeuren' : actionType === 'reject' ? 'Afwijzen' : 'Verwijderen'}
+                  {actionType === 'approve' ? 'Goedkeuren' : actionType === 'reject' ? 'Afwijzen' : actionType === 'delete' ? 'Verwijderen' : 'Bekijken'}
                 </button>
                 <button
                   type="button"
@@ -507,6 +587,77 @@ export default function RetailerManagementPage() {
                   Annuleren
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {isModalOpen && selectedRetailer && actionType === 'profile' && (
+        <div className="fixed z-10 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+          <div className="flex items-center justify-center min-h-screen px-4 py-8 bg-gray-800 bg-opacity-60">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8 relative">
+              {/* Sluitknop */}
+                      <button
+                onClick={closeModal}
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 focus:outline-none"
+                aria-label="Sluiten"
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                      </button>
+              {/* Avatar/logo en titel */}
+              <div className="flex items-center mb-6">
+                <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mr-4">
+                  <span className="text-2xl font-bold text-pink-600">
+                    {selectedRetailer.business_name?.charAt(0) || "?"}
+                  </span>
+                </div>
+                <div>
+                  <h3 className="text-2xl font-extrabold text-gray-900 mb-1">Retailer Profiel</h3>
+                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
+                    selectedRetailer.status === 'approved'
+                      ? 'bg-green-100 text-green-800'
+                      : selectedRetailer.status === 'pending'
+                      ? 'bg-yellow-100 text-yellow-800'
+                      : 'bg-red-100 text-red-800'
+                  }`}>
+                    {selectedRetailer.status}
+                  </span>
+                </div>
+              </div>
+              {/* Profielgegevens */}
+              <div className="grid grid-cols-1 gap-y-3">
+                <div>
+                  <span className="block text-xs text-gray-500 font-medium">Bedrijfsnaam</span>
+                  <span className="block text-gray-900 font-semibold">{selectedRetailer.business_name}</span>
+                </div>
+                <div>
+                  <span className="block text-xs text-gray-500 font-medium">Contactpersoon</span>
+                  <span className="block text-gray-900">{selectedRetailer.contact_name}</span>
+                </div>
+                <div>
+                  <span className="block text-xs text-gray-500 font-medium">Telefoon</span>
+                  <span className="block text-gray-900">{selectedRetailer.phone}</span>
+                </div>
+                <div>
+                  <span className="block text-xs text-gray-500 font-medium">E-mail</span>
+                  <span className="block text-gray-900">{selectedRetailer.email}</span>
+                </div>
+                <div>
+                  <span className="block text-xs text-gray-500 font-medium">Adres</span>
+                  <span className="block text-gray-900">{selectedRetailer.address}, {selectedRetailer.postal_code} {selectedRetailer.city}</span>
+                </div>
+              </div>
+              {/* Aanvullende informatie */}
+              {selectedRetailer.metadata?.message && (
+                <div className="mt-6">
+                  <span className="block text-xs text-gray-500 font-medium mb-1">Aanvullende informatie</span>
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-gray-900 whitespace-pre-line">
+                    {selectedRetailer.metadata.message}
+                  </div>
+                </div>
+          )}
             </div>
           </div>
         </div>

@@ -68,42 +68,39 @@ export async function DELETE(request: NextRequest) {
     const retailerToDelete = existingRetailers[0];
     console.log('[RETAILERS API] Retailer gevonden:', retailerToDelete.email);
     
-    // Delete the retailer
-    const { data: deleteData, error: deleteError } = await supabase
-      .from('profiles')
-      .delete()
-      .eq('id', retailerId)
-      .eq('role', 'retailer')
-      .select();
-    
-    if (deleteError) {
-      console.error('[RETAILERS API] Fout bij verwijderen:', deleteError);
+    // 1. Sla retailer op in deleted_retailers vóór verwijdering
+    const { error: archiveError } = await supabase
+      .from('deleted_retailers')
+      .insert({
+        id: retailerToDelete.id,
+        email: retailerToDelete.email,
+        full_name: retailerToDelete.full_name,
+        company_name: retailerToDelete.company_name,
+        phone: retailerToDelete.phone,
+        address: retailerToDelete.address,
+        city: retailerToDelete.city,
+        postal_code: retailerToDelete.postal_code,
+        country: retailerToDelete.country,
+        original_data: retailerToDelete,
+        deleted_at: new Date().toISOString(),
+      });
+    if (archiveError) {
+      console.error('[RETAILERS API] Fout bij archiveren in deleted_retailers:', archiveError);
       return NextResponse.json(
-        { success: false, error: 'Fout bij verwijderen: ' + deleteError.message },
+        { success: false, error: 'Fout bij archiveren van retailer: ' + archiveError.message },
         { status: 500 }
       );
     }
-    
-    if (!deleteData || deleteData.length === 0) {
-      console.error('[RETAILERS API] Geen rijen verwijderd');
-      return NextResponse.json(
-        { success: false, error: 'Retailer kon niet worden verwijderd' },
-        { status: 404 }
-      );
-    }
-    
-    const deletedRetailer = deleteData[0];
-    console.log(`[RETAILERS API] Retailer succesvol verwijderd: ${deletedRetailer.email}`);
-    
-    // Send termination email
+
+    // 2. Stuur beëindigingsmail vóór verwijderen
     try {
       await sendTemplateEmail({
-        to: deletedRetailer.email,
+        to: retailerToDelete.email,
         template: 'retailer-removal',
         subject: 'Uw Wasgeurtje retailer account is beëindigd',
         context: {
-          contactName: deletedRetailer.full_name || 'Geachte retailer',
-          businessName: deletedRetailer.company_name || 'Uw bedrijf',
+          contactName: retailerToDelete.full_name || 'Geachte retailer',
+          businessName: retailerToDelete.company_name || 'Uw bedrijf',
           reason: 'Account beëindiging op verzoek van de administrator'
         }
       });
@@ -111,6 +108,33 @@ export async function DELETE(request: NextRequest) {
     } catch (emailError) {
       console.warn('[RETAILERS API] Email fout (niet kritiek):', emailError);
     }
+
+    // 3. Verwijder retailer uit profiles-tabel
+    const { data: deleteData, error: deleteError } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', retailerId)
+      .eq('role', 'retailer')
+      .select();
+
+    if (deleteError) {
+      console.error('[RETAILERS API] Fout bij verwijderen:', deleteError);
+      return NextResponse.json(
+        { success: false, error: 'Fout bij verwijderen: ' + deleteError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!deleteData || deleteData.length === 0) {
+      console.error('[RETAILERS API] Geen rijen verwijderd');
+      return NextResponse.json(
+        { success: false, error: 'Retailer kon niet worden verwijderd' },
+        { status: 404 }
+      );
+    }
+
+    const deletedRetailer = deleteData[0];
+    console.log(`[RETAILERS API] Retailer succesvol verwijderd: ${deletedRetailer.email}`);
     
     console.log('[RETAILERS API] ============ DELETE SUCCESS ============');
     

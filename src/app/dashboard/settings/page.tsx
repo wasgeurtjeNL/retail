@@ -47,11 +47,20 @@ export default function SettingsPage() {
   const [sendingTest, setSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Test mode state
+  const [isTestMode, setIsTestMode] = useState(true); // Default to test mode
+  const [testModeLoading, setTestModeLoading] = useState(false);
+
   // Lees de opgeslagen Stripe keys uit localStorage bij het laden van de pagina en na configuratie
   useEffect(() => {
     if (typeof window !== 'undefined') {
       // Direct controleren bij laden van de pagina
       checkAndUpdateStripeStatus();
+      // Load test mode setting
+      const savedTestMode = localStorage.getItem('STRIPE_TEST_MODE');
+      if (savedTestMode !== null) {
+        setIsTestMode(savedTestMode === 'true');
+      }
     }
   }, []); // Leeg afhankelijkheidsarray om alleen bij het laden van de pagina uit te voeren
 
@@ -201,6 +210,28 @@ export default function SettingsPage() {
     }
   };
 
+  // Handler voor test mode toggle
+  const handleTestModeToggle = async (enabled: boolean) => {
+    setTestModeLoading(true);
+    try {
+      // Save to localStorage
+      localStorage.setItem('STRIPE_TEST_MODE', enabled.toString());
+      setIsTestMode(enabled);
+      
+      // Show success message
+      toast.success(
+        enabled 
+          ? 'Test modus geactiveerd - gebruik test creditcards voor betalingen' 
+          : 'Live modus geactiveerd - echte betalingen worden verwerkt'
+      );
+    } catch (error) {
+      toast.error('Fout bij wijzigen van test modus');
+      console.error('Error toggling test mode:', error);
+    } finally {
+      setTestModeLoading(false);
+    }
+  };
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -337,6 +368,57 @@ export default function SettingsPage() {
                         
                         {/* Toon de huidige status van Stripe configuratie */}
                         {renderStripeStatus()}
+                        
+                        {/* Test Mode Toggle */}
+                        <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-md p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h4 className="text-sm font-medium text-yellow-800">
+                                Betaling Test Modus
+                              </h4>
+                              <p className="text-sm text-yellow-700 mt-1">
+                                {isTestMode 
+                                  ? 'Test modus actief - gebruik test creditcards (4242 4242 4242 4242)'
+                                  : 'Live modus actief - echte betalingen worden verwerkt'
+                                }
+                              </p>
+                            </div>
+                            <div className="flex items-center">
+                              <button
+                                type="button"
+                                disabled={testModeLoading}
+                                onClick={() => handleTestModeToggle(!isTestMode)}
+                                className={`${
+                                  isTestMode ? 'bg-yellow-600' : 'bg-gray-200'
+                                } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 disabled:opacity-50`}
+                              >
+                                <span
+                                  className={`${
+                                    isTestMode ? 'translate-x-5' : 'translate-x-0'
+                                  } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
+                                />
+                              </button>
+                              <span className="ml-3 text-sm text-yellow-800 font-medium">
+                                {isTestMode ? 'Test' : 'Live'}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {isTestMode && (
+                            <div className="mt-4 p-3 bg-yellow-100 rounded border border-yellow-300">
+                              <h5 className="text-sm font-medium text-yellow-800 mb-2">Test Creditcard Gegevens:</h5>
+                              <div className="text-xs text-yellow-700 space-y-1">
+                                <p><strong>Nummer:</strong> 4242 4242 4242 4242</p>
+                                <p><strong>Vervaldatum:</strong> 12/34 (elke datum in de toekomst)</p>
+                                <p><strong>CVC:</strong> 123 (elke 3 cijfers)</p>
+                                <p><strong>Naam:</strong> Elke naam</p>
+                                <p className="mt-2 text-xs text-yellow-600 font-medium">
+                                  ⚠️ Gebruik alleen deze gegevens in test modus
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                         
                         <div className="mt-6 bg-blue-50 p-4 rounded-md border border-blue-200">
                           <h4 className="text-sm font-medium text-blue-800">Tips voor Stripe configuratie:</h4>

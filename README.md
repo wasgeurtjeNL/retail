@@ -218,8 +218,11 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 
 MANDRILL_API_KEY=your-mandrill-api-key
 
-STRIPE_SECRET_KEY=your-stripe-secret-key
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=your-stripe-publishable-key
+# Stripe Keys (test en live)
+STRIPE_TEST_SECRET_KEY=your-stripe-test-secret-key
+STRIPE_LIVE_SECRET_KEY=your-stripe-live-secret-key
+NEXT_PUBLIC_STRIPE_TEST_PUBLISHABLE_KEY=your-stripe-test-publishable-key
+NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY=your-stripe-live-publishable-key
 
 POSTCODE_API_KEY=your-postcode-api-key
 POSTCODE_API_SECRET=your-postcode-api-secret

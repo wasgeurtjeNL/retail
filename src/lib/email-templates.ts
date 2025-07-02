@@ -18,7 +18,13 @@ export type TemplateKey =
   | 'admin-notification'
   | 'retailer-order-confirmation'
   | 'retailer-training-materials'
-  | 'retailer-directory-listing';
+  | 'retailer-directory-listing'
+  | 'retailer-removal'
+  | 'wasstrips-deposit-payment'
+  | 'wasstrips-deposit-paid'
+  | 'wasstrips-order-ready'
+  | 'wasstrips-shipped'
+  | 'wasstrips-remaining-payment';
 
 // Define the templates record type
 export type TemplatesRecord = Record<TemplateKey, EmailTemplate>;
@@ -753,6 +759,514 @@ Heeft u vragen of wilt u wijzigingen aanbrengen in uw vermelding? Neem dan conta
 
 Met vriendelijke groet,
 Het Wasgeurtje Team
+
+© {{currentYear}} Wasgeurtje.nl
+    `
+  },
+  // --- Professioneel template voor accountbeëindiging ---
+  'retailer-removal': {
+    name: 'Retailer account beëindiging',
+    description: 'E-mail naar retailer bij verwijdering van het account',
+    subject: 'Uw Wasgeurtje retailer account is beëindigd',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="{{logoUrl}}" alt="Wasgeurtje Logo" style="max-width: 240px; max-height: 80px; object-fit: contain;" />
+        </div>
+        <div style="background-color: #fff6f6; border-radius: 8px; padding: 20px; border-left: 4px solid #e91e63;">
+          <h1 style="color: #e91e63; margin-top: 0;">Account beëindigd</h1>
+          <p>Beste {{contactName}},</p>
+          <p>Uw Wasgeurtje retailer account is per direct beëindigd door de administrator.</p>
+          <p>Reden: <strong>{{reason}}</strong></p>
+          <p>Mocht u vragen hebben over deze beslissing, neem dan gerust contact op via <a href="mailto:info@wasgeurtje.nl" style="color: #e91e63;">info@wasgeurtje.nl</a>.</p>
+          <p style="margin-bottom: 0;">Met vriendelijke groet,<br />Het Wasgeurtje Team</p>
+        </div>
+        <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #888;">
+          <p>&copy; {{currentYear}} Wasgeurtje.nl | <a href="https://wasgeurtje.nl/privacy" style="color: #888;">Privacy</a> | <a href="https://wasgeurtje.nl/voorwaarden" style="color: #888;">Voorwaarden</a></p>
+        </div>
+      </div>
+    `,
+    text: `
+Account beëindigd
+
+Beste {{contactName}},
+
+Uw Wasgeurtje retailer account is per direct beëindigd door de administrator.
+
+Reden: {{reason}}
+
+Mocht u vragen hebben over deze beslissing, neem dan gerust contact op via info@wasgeurtje.nl.
+
+Met vriendelijke groet,
+Het Wasgeurtje Team
+
+© {{currentYear}} Wasgeurtje.nl
+    `
+  },
+  'wasstrips-deposit-payment': {
+    name: 'Wasstrips Aanbetaling',
+    description: 'E-mail voor aanbetaling van Wasstrips na retailer goedkeuring',
+    subject: 'Aanbetaling voor uw Wasstrips bestelling - €30',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="{{logoUrl}}" alt="Wasgeurtje Logo" style="max-width: 240px; max-height: 80px; object-fit: contain;" />
+        </div>
+        <div style="background-color: #f9f9f9; border-radius: 8px; padding: 20px; border-left: 4px solid #e91e63;">
+          <h1 style="color: #e91e63; margin-top: 0;">Aanbetaling voor Wasstrips</h1>
+          <p>Beste {{contactName}},</p>
+          <p>Gefeliciteerd! Uw retailer aanvraag is goedgekeurd en u kunt nu Wasstrips gaan verkopen.</p>
+          <p>Om uw Wasstrips bestelling te starten, vragen wij een <strong>aanbetaling van €30</strong> (10% van de minimum bestelling van €300).</p>
+          
+          <div style="background-color: #e91e63; color: white; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center;">
+            <h2 style="margin: 0; font-size: 24px;">Aanbetaling: €30,00</h2>
+            <p style="margin: 10px 0; font-size: 16px;">Deze wordt volledig verrekend met uw eerste bestelling</p>
+            <div style="margin: 20px 0;">
+              <a href="{{paymentUrl}}" style="background-color: white; color: #e91e63; padding: 15px 30px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px;">Betaal nu €30</a>
+            </div>
+          </div>
+          
+          <div style="background-color: #f5f5f5; border-radius: 4px; padding: 15px; margin: 20px 0;">
+            <h3 style="margin-top: 0; font-size: 16px; color: #e91e63;">Wat gebeurt er na betaling?</h3>
+            <ol style="margin-bottom: 0; padding-left: 20px;">
+              <li>Uw aanbetaling van €30 wordt bevestigd</li>
+              <li>Wij bereiden uw Wasstrips bestelling voor</li>
+              <li>U ontvangt uw producten binnen 2-3 werkdagen</li>
+              <li>Na ontvangst betaalt u het restbedrag van €270</li>
+              <li>De €30 aanbetaling wordt volledig verrekend</li>
+            </ol>
+          </div>
+          
+          <div style="background-color: #fff6f9; border: 1px dashed #e91e63; border-radius: 4px; padding: 15px; margin: 20px 0;">
+            <h3 style="margin-top: 0; font-size: 16px; color: #e91e63;">Betaalopties</h3>
+            <ul style="margin-bottom: 0; padding-left: 20px;">
+              <li><strong>Online betaling:</strong> Direct via iDEAL, creditcard of bancontact</li>
+              <li><strong>Factuur:</strong> Betaling binnen 14 dagen na ontvangst factuur</li>
+            </ul>
+          </div>
+          
+          <p>Heeft u vragen over de aanbetaling of het bestelproces? Neem gerust contact met ons op via <a href="mailto:orders@wasgeurtje.nl" style="color: #e91e63;">orders@wasgeurtje.nl</a>.</p>
+          <p style="margin-bottom: 0;">Met vriendelijke groet,<br />Het Wasgeurtje Team</p>
+        </div>
+        <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #888;">
+          <p>&copy; {{currentYear}} Wasgeurtje.nl | <a href="https://wasgeurtje.nl/privacy" style="color: #888;">Privacy</a> | <a href="https://wasgeurtje.nl/voorwaarden" style="color: #888;">Voorwaarden</a></p>
+        </div>
+      </div>
+    `,
+    text: `
+Aanbetaling voor Wasstrips
+
+Beste {{contactName}},
+
+Gefeliciteerd! Uw retailer aanvraag is goedgekeurd en u kunt nu Wasstrips gaan verkopen.
+
+Om uw Wasstrips bestelling te starten, vragen wij een aanbetaling van €30 (10% van de minimum bestelling van €300).
+
+AANBETALING: €30,00
+Deze wordt volledig verrekend met uw eerste bestelling
+
+Betaal nu: {{paymentUrl}}
+
+WAT GEBEURT ER NA BETALING?
+1. Uw aanbetaling van €30 wordt bevestigd
+2. Wij bereiden uw Wasstrips bestelling voor
+3. U ontvangt uw producten binnen 2-3 werkdagen
+4. Na ontvangst betaalt u het restbedrag van €270
+5. De €30 aanbetaling wordt volledig verrekend
+
+BETAALOPTIES
+- Online betaling: Direct via iDEAL, creditcard of bancontact
+- Factuur: Betaling binnen 14 dagen na ontvangst factuur
+
+Heeft u vragen over de aanbetaling of het bestelproces? Neem gerust contact met ons op via orders@wasgeurtje.nl.
+
+Met vriendelijke groet,
+Het Wasgeurtje Team
+
+© {{currentYear}} Wasgeurtje.nl
+    `
+  },
+  'wasstrips-remaining-payment': {
+    name: 'Wasstrips Restbedrag',
+    description: 'E-mail voor restbedrag betaling na levering van Wasstrips',
+    subject: 'Restbedrag voor uw Wasstrips bestelling - €270',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="{{logoUrl}}" alt="Wasgeurtje Logo" style="max-width: 240px; max-height: 80px; object-fit: contain;" />
+        </div>
+        <div style="background-color: #f9f9f9; border-radius: 8px; padding: 20px; border-left: 4px solid #4caf50;">
+          <h1 style="color: #4caf50; margin-top: 0;">Uw Wasstrips zijn geleverd!</h1>
+          <p>Beste {{contactName}},</p>
+          <p>Geweldig nieuws! Uw Wasstrips bestelling is succesvol geleverd en u kunt nu beginnen met verkopen.</p>
+          <p>Het restbedrag van <strong>€270</strong> kan nu worden betaald. Uw eerdere aanbetaling van €30 is reeds verrekend.</p>
+          
+          <div style="background-color: #4caf50; color: white; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center;">
+            <h2 style="margin: 0; font-size: 24px;">Restbedrag: €270,00</h2>
+            <p style="margin: 10px 0; font-size: 16px;">Aanbetaling van €30 reeds verrekend</p>
+            <div style="margin: 20px 0;">
+              <a href="{{paymentUrl}}" style="background-color: white; color: #4caf50; padding: 15px 30px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px;">Betaal restbedrag</a>
+            </div>
+          </div>
+          
+          <div style="background-color: #f5f5f5; border-radius: 4px; padding: 15px; margin: 20px 0;">
+            <h3 style="margin-top: 0; font-size: 16px; color: #4caf50;">Bestelling overzicht</h3>
+            <ul style="margin-bottom: 0; padding-left: 20px;">
+              <li><strong>Totaal bestelling:</strong> €300,00</li>
+              <li><strong>Aanbetaling betaald:</strong> -€30,00</li>
+              <li><strong>Restbedrag:</strong> €270,00</li>
+            </ul>
+          </div>
+          
+          <div style="background-color: #e8f5e8; border: 1px dashed #4caf50; border-radius: 4px; padding: 15px; margin: 20px 0;">
+            <h3 style="margin-top: 0; font-size: 16px; color: #4caf50;">Betaalopties restbedrag</h3>
+            <ul style="margin-bottom: 0; padding-left: 20px;">
+              <li><strong>Online betaling:</strong> Direct via iDEAL, creditcard of bancontact</li>
+              <li><strong>Factuur:</strong> Betaling binnen 14 dagen na ontvangst factuur</li>
+              <li><strong>Bankoverschrijving:</strong> Op rekening NL91 ABNA 0417 1643 00</li>
+            </ul>
+          </div>
+          
+          <div style="background-color: #fff9c4; border: 1px solid #f57f17; border-radius: 4px; padding: 15px; margin: 20px 0;">
+            <h3 style="margin-top: 0; font-size: 16px; color: #f57f17;">💡 Tips voor succesvol verkopen</h3>
+            <ul style="margin-bottom: 0; padding-left: 20px;">
+              <li>Plaats de Wasstrips prominent in uw winkel</li>
+              <li>Gebruik de meegeleverde display materialen</li>
+              <li>Deel uw ervaringen op social media</li>
+              <li>Volgende bestelling? Minimum €75 voor nabestellingen</li>
+            </ul>
+          </div>
+          
+          <p>Heeft u vragen over de betaling of het verkopen van Wasstrips? Neem gerust contact met ons op via <a href="mailto:support@wasgeurtje.nl" style="color: #4caf50;">support@wasgeurtje.nl</a>.</p>
+          <p style="margin-bottom: 0;">Veel succes met de verkoop!<br />Het Wasgeurtje Team</p>
+        </div>
+        <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #888;">
+          <p>&copy; {{currentYear}} Wasgeurtje.nl | <a href="https://wasgeurtje.nl/privacy" style="color: #888;">Privacy</a> | <a href="https://wasgeurtje.nl/voorwaarden" style="color: #888;">Voorwaarden</a></p>
+        </div>
+      </div>
+    `,
+    text: `
+Uw Wasstrips zijn geleverd!
+
+Beste {{contactName}},
+
+Geweldig nieuws! Uw Wasstrips bestelling is succesvol geleverd en u kunt nu beginnen met verkopen.
+
+Het restbedrag van €270 kan nu worden betaald. Uw eerdere aanbetaling van €30 is reeds verrekend.
+
+RESTBEDRAG: €270,00
+Aanbetaling van €30 reeds verrekend
+
+Betaal restbedrag: {{paymentUrl}}
+
+BESTELLING OVERZICHT
+- Totaal bestelling: €300,00
+- Aanbetaling betaald: -€30,00
+- Restbedrag: €270,00
+
+BETAALOPTIES RESTBEDRAG
+- Online betaling: Direct via iDEAL, creditcard of bancontact
+- Factuur: Betaling binnen 14 dagen na ontvangst factuur
+- Bankoverschrijving: Op rekening NL91 ABNA 0417 1643 00
+
+TIPS VOOR SUCCESVOL VERKOPEN
+- Plaats de Wasstrips prominent in uw winkel
+- Gebruik de meegeleverde display materialen
+- Deel uw ervaringen op social media
+- Volgende bestelling? Minimum €75 voor nabestellingen
+
+Heeft u vragen over de betaling of het verkopen van Wasstrips? Neem gerust contact met ons op via support@wasgeurtje.nl.
+
+Veel succes met de verkoop!
+Het Wasgeurtje Team
+
+© {{currentYear}} Wasgeurtje.nl
+    `
+  },
+  'wasstrips-deposit-paid': {
+    name: 'Wasstrips Aanbetaling Bevestiging',
+    description: 'Bevestigingsmail na succesvolle aanbetaling voor Wasstrips',
+    subject: 'Uw aanbetaling van €30 is ontvangen - Wasstrips bestelling',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="{{logoUrl}}" alt="Wasgeurtje Logo" style="max-width: 240px; max-height: 80px; object-fit: contain;" />
+        </div>
+        <div style="background-color: #f8f9fa; border-radius: 8px; padding: 30px; border-left: 4px solid #28a745;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #28a745; margin: 0; font-size: 28px;">✅ Aanbetaling Ontvangen!</h1>
+          </div>
+          
+          <p>Beste {{retailer_name}},</p>
+          
+          <p><strong>Geweldig nieuws!</strong> Uw aanbetaling van <strong>€30,00</strong> voor uw Wasstrips bestelling is succesvol ontvangen.</p>
+          
+          <div style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px; padding: 20px; margin: 25px 0;">
+            <h3 style="color: #155724; margin: 0 0 15px 0; font-size: 18px;">📋 Betalingsdetails:</h3>
+            <div style="background-color: white; border-radius: 6px; padding: 15px;">
+              <ul style="margin: 0; padding-left: 20px; list-style: none;">
+                <li style="margin-bottom: 8px;"><strong>💰 Bedrag:</strong> €30,00</li>
+                <li style="margin-bottom: 8px;"><strong>📅 Betaaldatum:</strong> {{payment_date}}</li>
+                <li style="margin-bottom: 8px;"><strong>🏷️ Bestelling:</strong> {{application_id}}</li>
+                <li style="margin-bottom: 8px;"><strong>📦 Totaal bestelling:</strong> €300,00</li>
+                <li style="margin-bottom: 0;"><strong>💳 Restbedrag:</strong> €270,00</li>
+              </ul>
+            </div>
+          </div>
+          
+          <h3 style="color: #28a745; font-size: 20px;">🚀 Wat gebeurt er nu?</h3>
+          <div style="background-color: white; border-radius: 8px; padding: 20px; border: 1px solid #e9ecef;">
+            <ol style="margin: 0; padding-left: 20px;">
+              <li style="margin-bottom: 10px;"><strong>Productie start:</strong> Wij beginnen met het voorbereiden van uw Wasstrips bestelling</li>
+              <li style="margin-bottom: 10px;"><strong>Levering:</strong> Uw producten worden binnen 5-7 werkdagen geleverd</li>
+              <li style="margin-bottom: 0;"><strong>Restbetaling:</strong> Na levering ontvangt u een link voor het restbedrag van €270,00</li>
+            </ol>
+          </div>
+          
+          <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 20px; margin: 25px 0;">
+            <h4 style="color: #856404; margin: 0 0 15px 0; font-size: 16px;">💡 Tips voor succes:</h4>
+            <ul style="margin: 0; padding-left: 20px; color: #856404;">
+              <li style="margin-bottom: 8px;">Bereid uw verkoopstrategie voor</li>
+              <li style="margin-bottom: 8px;">Denk na over uw doelgroep</li>
+              <li style="margin-bottom: 0;">Overweeg sociale media promotie</li>
+            </ul>
+          </div>
+          
+          <p>Heeft u vragen over uw bestelling? Neem gerust contact met ons op via <a href="mailto:{{company_email}}" style="color: #28a745; text-decoration: none;">{{company_email}}</a>.</p>
+          
+          <p>Bedankt voor uw vertrouwen in Wasgeurtje!</p>
+          
+          <p style="margin-bottom: 0;">Met vriendelijke groet,<br>
+          <strong>{{company_name}}</strong></p>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px; color: #6c757d; font-size: 12px;">
+          <p>&copy; {{currentYear}} {{company_name}} | Dit is een automatisch gegenereerde e-mail.</p>
+        </div>
+      </div>
+    `,
+    text: `
+Aanbetaling Ontvangen!
+
+Beste {{retailer_name}},
+
+Geweldig nieuws! Uw aanbetaling van €30,00 voor uw Wasstrips bestelling is succesvol ontvangen.
+
+BETALINGSDETAILS:
+- Bedrag: €30,00
+- Betaaldatum: {{payment_date}}
+- Bestelling: {{application_id}}
+- Totaal bestelling: €300,00
+- Restbedrag: €270,00
+
+WAT GEBEURT ER NU?
+1. Productie start: Wij beginnen met het voorbereiden van uw Wasstrips bestelling
+2. Levering: Uw producten worden binnen 5-7 werkdagen geleverd
+3. Restbetaling: Na levering ontvangt u een link voor het restbedrag van €270,00
+
+TIPS VOOR SUCCES:
+- Bereid uw verkoopstrategie voor
+- Denk na over uw doelgroep
+- Overweeg sociale media promotie
+
+Heeft u vragen over uw bestelling? Neem gerust contact met ons op via {{company_email}}.
+
+Bedankt voor uw vertrouwen in Wasgeurtje!
+
+Met vriendelijke groet,
+{{company_name}}
+
+© {{currentYear}} {{company_name}} | Dit is een automatisch gegenereerde e-mail.
+    `
+  },
+  'wasstrips-order-ready': {
+    name: 'Wasstrips Bestelling Klaar',
+    description: 'Melding dat bestelling binnen is en betaalopties beschikbaar zijn',
+    subject: 'Uw Wasstrips bestelling is binnen - Kies uw betaalmethode 📦',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="{{logoUrl}}" alt="Wasgeurtje Logo" style="max-width: 240px; max-height: 80px; object-fit: contain;" />
+        </div>
+        <div style="background-color: #f0f9ff; border-radius: 8px; padding: 30px; border-left: 4px solid #3b82f6;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #1e40af; margin: 0; font-size: 28px;">🎉 Uw bestelling is binnen!</h1>
+          </div>
+          
+          <p style="font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+            Beste {{retailer_name}},
+          </p>
+          
+          <p style="font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+            Geweldig nieuws! Uw Wasstrips bestelling is binnen en klaar voor verzending. 
+            Om de verzending te starten, kunt u nu uw betaalmethode kiezen voor het restbedrag van <strong>€270,00</strong>.
+          </p>
+          
+          <div style="background-color: white; border-radius: 6px; padding: 20px; margin: 20px 0; border: 1px solid #e5e7eb;">
+            <h3 style="color: #374151; margin: 0 0 15px 0; font-size: 18px;">💰 Betalingsoverzicht</h3>
+            <ul style="margin: 0; padding-left: 20px; list-style: none;">
+              <li style="margin-bottom: 8px;"><strong>🏷️ Bestelling ID:</strong> #{{application_id}}</li>
+              <li style="margin-bottom: 8px;"><strong>💰 Totaal bestelling:</strong> €300,00</li>
+              <li style="margin-bottom: 8px;"><strong>✅ Aanbetaling betaald:</strong> €30,00</li>
+              <li style="margin-bottom: 0;"><strong>💳 Restbedrag:</strong> €270,00</li>
+            </ul>
+          </div>
+          
+          <div style="background-color: #ecfdf5; border-radius: 6px; padding: 20px; margin: 20px 0; border-left: 4px solid #10b981;">
+            <h3 style="color: #065f46; margin: 0 0 15px 0; font-size: 18px;">💡 Kies uw betaalmethode:</h3>
+            
+            <div style="margin: 15px 0;">
+              <a href="{{payment_options_url}}" 
+                 style="display: inline-block; width: 100%; background-color: #3b82f6; color: white; padding: 15px 25px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; text-align: center; margin-bottom: 10px;">
+                🏦 Direct betalen (iDEAL/Creditcard)
+              </a>
+            </div>
+            
+            <div style="margin: 15px 0;">
+              <a href="{{payment_options_url}}" 
+                 style="display: inline-block; width: 100%; background-color: #f59e0b; color: white; padding: 15px 25px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; text-align: center;">
+                📄 Betalen op factuur (14 dagen)
+              </a>
+            </div>
+          </div>
+          
+          <div style="background-color: #fef3c7; border-radius: 6px; padding: 15px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+            <p style="margin: 0; color: #92400e; font-weight: 500;">
+              ⚠️ <strong>Belangrijk:</strong> Uw bestelling wordt pas verzonden nadat u uw betaalmethode heeft gekozen.
+            </p>
+          </div>
+          
+          <p style="font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+            Heeft u vragen over de betaling? Neem gerust contact met ons op via <a href="mailto:{{company_email}}" style="color: #3b82f6; text-decoration: none;">{{company_email}}</a>.
+          </p>
+          
+          <div style="text-align: center; margin-top: 30px;">
+            <p style="color: #6b7280; font-size: 14px; margin: 0;">
+              Bedankt voor uw vertrouwen in Wasgeurtje!
+            </p>
+          </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+          <p style="color: #9ca3af; font-size: 12px; margin: 0;">
+            © {{currentYear}} {{company_name}}. Alle rechten voorbehouden.
+          </p>
+        </div>
+      </div>
+    `,
+    text: `
+      Beste {{retailer_name}},
+
+      Geweldig nieuws! Uw Wasstrips bestelling is binnen en klaar voor verzending.
+      
+      Om de verzending te starten, kunt u nu uw betaalmethode kiezen voor het restbedrag van €270,00.
+
+      Betalingsoverzicht:
+      - Bestelling ID: #{{application_id}}
+      - Totaal bestelling: €300,00
+      - Aanbetaling betaald: €30,00
+      - Restbedrag: €270,00
+
+      Kies uw betaalmethode:
+      1. Direct betalen (iDEAL/Creditcard)
+      2. Betalen op factuur (14 dagen)
+
+      Ga naar: {{payment_options_url}}
+
+      BELANGRIJK: Uw bestelling wordt pas verzonden nadat u uw betaalmethode heeft gekozen.
+
+      Heeft u vragen over de betaling? Neem gerust contact met ons op via {{company_email}}.
+
+      Bedankt voor uw vertrouwen in Wasgeurtje!
+
+      Met vriendelijke groet,
+      Het Wasgeurtje Team
+
+      © {{currentYear}} Wasgeurtje.nl
+    `
+  },
+
+  'wasstrips-shipped': {
+    name: 'Wasstrips Verzendbevestiging',
+    description: 'Bevestigingsmail na verzending van Wasstrips bestelling',
+    subject: 'Uw Wasstrips bestelling is verzonden! 📦',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="{{logoUrl}}" alt="Wasgeurtje Logo" style="max-width: 240px; max-height: 80px; object-fit: contain;" />
+        </div>
+        <div style="background-color: #f0f9ff; border-radius: 8px; padding: 30px; border-left: 4px solid #3b82f6;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #1e40af; margin: 0; font-size: 28px;">📦 Uw bestelling is verzonden!</h1>
+          </div>
+          <p style="font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+            Beste {{retailer_name}},
+          </p>
+          <p style="font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+            Goed nieuws! Uw Wasstrips bestelling is vandaag verzonden en onderweg naar u toe.
+          </p>
+          <div style="background-color: white; border-radius: 6px; padding: 20px; margin: 20px 0; border: 1px solid #e5e7eb;">
+            <h3 style="color: #374151; margin: 0 0 15px 0; font-size: 18px;">📋 Verzenddetails</h3>
+            <ul style="margin: 0; padding-left: 20px; list-style: none;">
+              <li style="margin-bottom: 8px;"><strong>📅 Verzenddatum:</strong> {{shipping_date}}</li>
+              <li style="margin-bottom: 8px;"><strong>🏷️ Bestelling ID:</strong> #{{application_id}}</li>
+              {{#if has_tracking}}
+              <li style="margin-bottom: 0;"><strong>📦 Track & Trace:</strong> <span style="color: #3b82f6; font-weight: 600;">{{tracking_code}}</span></li>
+              {{/if}}
+            </ul>
+          </div>
+          {{#if has_tracking}}
+          <div style="background-color: #ecfdf5; border-radius: 6px; padding: 15px; margin: 20px 0; border-left: 4px solid #10b981;">
+            <p style="margin: 0; color: #065f46; font-weight: 500;">
+              💡 <strong>Tip:</strong> Gebruik de Track & Trace code hierboven om uw zending te volgen bij de vervoerder.
+            </p>
+          </div>
+          {{/if}}
+          <p style="font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+            <strong>Wat gebeurt er nu?</strong>
+          </p>
+          <ul style="padding-left: 20px; margin-bottom: 20px;">
+            <li style="margin-bottom: 8px;">Uw pakket wordt binnen 1-3 werkdagen bezorgd</li>
+            <li style="margin-bottom: 8px;">Na ontvangst krijgt u een email voor het restbedrag van €270,00</li>
+            <li style="margin-bottom: 8px;">Het restbedrag kunt u betalen via iDEAL of factuur</li>
+          </ul>
+          <p style="font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+            Heeft u vragen over uw zending? Neem gerust contact met ons op via <a href="mailto:{{company_email}}" style="color: #3b82f6; text-decoration: none;">{{company_email}}</a>.
+          </p>
+          <div style="text-align: center; margin-top: 30px;">
+            <p style="color: #6b7280; font-size: 14px; margin: 0;">
+              Bedankt voor uw vertrouwen in Wasgeurtje!
+            </p>
+          </div>
+        </div>
+        <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+          <p style="color: #9ca3af; font-size: 12px; margin: 0;">
+            © {{currentYear}} {{company_name}}. Alle rechten voorbehouden.
+          </p>
+        </div>
+      </div>
+    `,
+    text: `
+      Beste {{retailer_name}},
+
+      Goed nieuws! Uw Wasstrips bestelling is vandaag verzonden en onderweg naar u toe.
+
+      Verzenddetails:
+      - Verzenddatum: {{shipping_date}}
+      - Bestelling ID: #{{application_id}}
+      {{#if has_tracking}}- Track & Trace: {{tracking_code}}{{/if}}
+
+      Wat gebeurt er nu?
+      - Uw pakket wordt binnen 1-3 werkdagen bezorgd
+      - Na ontvangst krijgt u een email voor het restbedrag van €270,00
+      - Het restbedrag kunt u betalen via iDEAL of factuur
+
+      Heeft u vragen over uw zending? Neem gerust contact met ons op via {{company_email}}.
+
+      Bedankt voor uw vertrouwen in Wasgeurtje!
+
+      Met vriendelijke groet,
+      Het Wasgeurtje Team
 
 © {{currentYear}} Wasgeurtje.nl
     `

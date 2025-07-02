@@ -30,6 +30,7 @@ export default function PaymentOptionsPage() {
   const [paymentMethod, setPaymentMethod] = useState<'direct' | 'invoice' | null>(null);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [isTestMode, setIsTestMode] = useState(true); // Default to test mode
   
   // Load application data on mount
   useEffect(() => {
@@ -69,6 +70,12 @@ export default function PaymentOptionsPage() {
       }
     };
     
+    // Check test mode from localStorage
+    const savedTestMode = localStorage.getItem('STRIPE_TEST_MODE');
+    if (savedTestMode !== null) {
+      setIsTestMode(savedTestMode === 'true');
+    }
+    
     loadApplication();
   }, [id]);
   
@@ -84,7 +91,24 @@ export default function PaymentOptionsPage() {
     setProcessingPayment(true);
     
     try {
-      // Eerst de keuze opslaan in localStorage
+      // Eerst de keuze opslaan in de database via API
+      const response = await fetch('/api/wasstrips-applications/select-payment-method', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          applicationId: application.id, 
+          paymentMethod 
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save payment method selection');
+      }
+
+      console.log('Payment method saved successfully');
+
+      // Ook opslaan in localStorage voor lokale state
       const storedApplications = localStorage.getItem('wasstrips-applications');
       if (storedApplications) {
         const applications = JSON.parse(storedApplications);
@@ -128,7 +152,10 @@ export default function PaymentOptionsPage() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ items }),
+          body: JSON.stringify({ 
+            items,
+            isTestMode: isTestMode 
+          }),
         });
 
         if (!response.ok) {

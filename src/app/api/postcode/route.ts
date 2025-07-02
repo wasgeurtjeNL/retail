@@ -108,14 +108,21 @@ export async function GET(request: NextRequest) {
     console.log('🔥 OUR auth string:', auth);
     
     try {
-      // Make the actual API call to Postcode.nl
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Accept': 'application/json'
-        },
-        cache: 'no-store'
-      });
+      // Maak de fetch request zo gelijk mogelijk aan wp_remote_get (WordPress)
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000); // 10 seconden timeout
+      let response;
+      try {
+        response = await fetch(url, {
+          headers: {
+            'Authorization': `Basic ${auth}`
+          },
+          cache: 'no-store',
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
       
       console.log('🔥 Postcode.nl API Response Status:', response.status);
       console.log('🔥 Postcode.nl API Response Headers:', Object.fromEntries(response.headers.entries()));

@@ -1,5 +1,9 @@
 {
   "mcpServers": {
+    "browsermcp": {
+      "command": "npx",
+      "args": ["@browsermcp/mcp@latest"]
+    },
     "supabase": {
       "command": "C:\\Users\\Gebruiker\\AppData\\Roaming\\npm\\mcp-server-supabase.cmd",
       "args": [

@@ -491,11 +491,11 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
                     </div>
                     <div className="ml-3 text-sm">
                       <label htmlFor="wasstripsDepositAgreed" className="font-semibold text-gray-700">
-                        Ik begrijp dat een aanbetaling vereist is
+                        Ik begrijp het aanbetaling proces voor Wasstrips
                       </label>
                       <p className="text-gray-600 mt-1">
-                        Om de enorme vraag te kunnen beheren, vragen wij een kleine aanbetaling om Wasstrips te kunnen verkopen. 
-                        Deze aanbetaling wordt volledig gecrediteerd bij uw eerste bestelling.
+                        <strong>Na goedkeuring van uw retailer aanvraag</strong> ontvangt u per e-mail instructies voor een aanbetaling van <strong>€30</strong> (10% van de minimum bestelling van €300). 
+                        Deze aanbetaling wordt volledig verrekend met uw eerste Wasstrips bestelling. Het restbedrag betaalt u na ontvangst van de producten.
                       </p>
                     </div>
                   </div>

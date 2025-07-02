@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
       country,
       wasstripsOptin,
       wasstripsDepositAgreed,
+      message,
       // Andere velden worden genegeerd voor nu
     } = body;
 
@@ -62,7 +63,8 @@ export async function POST(req: NextRequest) {
         postal_code: postalCode,
         country,
         role: 'retailer', // Standaardrol voor nieuwe registraties
-        status: 'pending'  // Start als 'pending' voor admin goedkeuring
+        status: 'pending',  // Start als 'pending' voor admin goedkeuring
+        metadata: message ? { message } : {} // <-- Sla extra info op in metadata
       });
 
     if (profileError) {
@@ -73,8 +75,9 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Maak een wasstrips aanvraag aan indien aangevinkt
+    let wasstripsApplicationResult = null;
     if (wasstripsOptin) {
-      const { error: wasstripsError } = await supabaseAdmin
+      const { data: wasstripsData, error: wasstripsError } = await supabaseAdmin
         .from('wasstrips_applications')
         .insert({
           profile_id: userId,
@@ -84,18 +87,102 @@ export async function POST(req: NextRequest) {
             application_source: 'RegistrationForm'
           },
           created_at: new Date().toISOString() // Expliciet tijdstip van opslaan
-        });
+        })
+        .select();
 
       if (wasstripsError) {
-        // Log de fout, maar laat de registratie doorgaan.
-        // Dit is geen kritieke fout die de hele flow moet stoppen.
+        // Geef een duidelijke foutmelding terug en stop de registratie
         console.error('Fout bij aanmaken van wasstrips aanvraag:', wasstripsError);
+        // Optioneel: verwijder de aangemaakte auth user en profiel
+        await supabaseAdmin.auth.admin.deleteUser(userId);
+        await supabaseAdmin.from('profiles').delete().eq('id', userId);
+        return NextResponse.json({ error: 'Fout bij aanmaken van wasstrips aanvraag: ' + wasstripsError.message }, { status: 500 });
       }
+      wasstripsApplicationResult = wasstripsData ? wasstripsData[0] : null;
     }
 
-    // TODO: Stuur e-mails voor activatie en notificatie
+    // --- NIEUW: Verstuur bevestigingsmail naar retailer en notificatie naar admin ---
+    // Haal e-mailtemplate op en verstuur bevestiging naar de nieuwe retailer
+    try {
+      // Importeer dynamisch om circular imports te voorkomen
+      const { getEmailTemplate, compileTemplate } = await import('@/lib/email-templates');
+      // Haal de template op voor registratiebevestiging
+      const template = await getEmailTemplate('retailer-registration-confirmation');
+      if (template) {
+        // Verstuur bevestigingsmail naar retailer
+        await sendEmail({
+          to: email,
+          subject: template.subject,
+          html: compileTemplate(template.html, {
+            contactName,
+            businessName,
+            email,
+            phone,
+            currentYear: new Date().getFullYear().toString(),
+            logoUrl: `${req.nextUrl.origin}/images/logo.png`
+          }),
+          text: compileTemplate(template.text, {
+            contactName,
+            businessName,
+            email,
+            phone,
+            currentYear: new Date().getFullYear().toString()
+          })
+        });
+      } else {
+        console.warn('Geen e-mailtemplate gevonden voor retailer registratie bevestiging.');
+      }
+    } catch (mailError) {
+      // Log alleen, want registratie moet altijd doorgaan
+      console.error('Fout bij versturen van registratiebevestiging:', mailError);
+    }
 
-    return NextResponse.json({ success: true, message: 'Registratie succesvol ontvangen.' });
+    // Stuur notificatie naar admin (optioneel: pas e-mailadres aan indien gewenst)
+    try {
+      const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'info@wasgeurtje.nl';
+      const { getEmailTemplate, compileTemplate } = await import('@/lib/email-templates');
+      const adminTemplate = await getEmailTemplate('admin-notification');
+      if (adminTemplate) {
+        await sendEmail({
+          to: adminEmail,
+          subject: '[Nieuwe retailer registratie] ' + businessName,
+          html: compileTemplate(adminTemplate.html, {
+            notificationType: 'Nieuwe retailer registratie',
+            date: new Date().toLocaleDateString('nl-NL'),
+            details: {
+              bedrijfsnaam: businessName,
+              contactpersoon: contactName,
+              email,
+              telefoonnummer: phone
+            },
+            actionUrl: `${req.nextUrl.origin}/dashboard/retailers`,
+            currentYear: new Date().getFullYear().toString(),
+            logoUrl: `${req.nextUrl.origin}/images/logo.png`
+          }),
+          text: compileTemplate(adminTemplate.text, {
+            notificationType: 'Nieuwe retailer registratie',
+            date: new Date().toLocaleDateString('nl-NL'),
+            details: {
+              bedrijfsnaam: businessName,
+              contactpersoon: contactName,
+              email,
+              telefoonnummer: phone
+            },
+            actionUrl: `${req.nextUrl.origin}/dashboard/retailers`,
+            currentYear: new Date().getFullYear().toString()
+          })
+        });
+      }
+    } catch (adminMailError) {
+      console.error('Fout bij versturen van admin notificatie:', adminMailError);
+    }
+    // --- EINDE NIEUW ---
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Registratie succesvol ontvangen.',
+      wasstripsApplication: wasstripsApplicationResult
+    });
 
   } catch (error) {
     console.error('Onverwachte fout in registratie API:', error);
