@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { getServiceRoleClient } from '@/lib/supabase';
-import OpenAITestService from '@/lib/openai-test-service';
+import { OpenAITestService } from '@/lib/openai-test-service';
 import { SYSTEM_UUID } from '@/lib/constants';
 
 export async function GET(request: NextRequest) {
