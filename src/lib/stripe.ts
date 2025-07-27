@@ -196,8 +196,8 @@ export const syncProductToStripe = async (
   }
 ) => {
   // Check of we in development mode zijn
-  if (process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY === '' || 
-      !process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
+  if (process.env.NEXT_PUBLIC_STRIPE_TEST_PUBLISHABLE_KEY === '' ||
+!process.env.NEXT_PUBLIC_STRIPE_TEST_PUBLISHABLE_KEY) {
     console.log('Development mode: Skipping Stripe sync for product', productId);
     return { success: true, mock: true };
   }

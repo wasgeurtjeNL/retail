@@ -1,243 +1,146 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import { useAuth } from "@/contexts/AuthContext";
-import EmailTemplateList from "@/components/EmailTemplateList";
-import EmailTemplateEditor from "@/components/EmailTemplateEditor";
-import BrandingSettings from "@/components/BrandingSettings";
-import EmailDiagnostics from '@/components/EmailDiagnostics';
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import Navbar from '@/components/Navbar';
+import Footer from '@/components/Footer';
+import Breadcrumbs from '@/components/Breadcrumbs';
+import { useAuth } from '@/contexts/AuthContext';
+import DiscoverySettingsManager from '@/components/DiscoverySettingsManager';
+import BrandingSettings from '@/components/BrandingSettings';
 import AccountSettings from '@/components/AccountSettings';
 import NotificationSettings from '@/components/NotificationSettings';
-import LogoutButton from "@/components/LogoutButton";
-import BackButton from "@/components/BackButton";
-import { checkStripeConfiguration } from "@/lib/stripe-server";
-import { toast } from "react-hot-toast";
+import EmailTemplateEditor from '@/components/EmailTemplateEditor';
+import EmailTemplateList from '@/components/EmailTemplateList';
+import EmailDiagnostics from '@/components/EmailDiagnostics';
+import MandrillDiagnostics from '@/components/MandrillDiagnostics';
+import ApiStatusCard from '@/components/ApiStatusCard';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { 
+  Settings, 
+  Brain, 
+  Palette, 
+  User, 
+  Bell, 
+  Mail, 
+  Key, 
+  Database, 
+  Shield, 
+  Activity,
+  RefreshCw,
+  CheckCircle,
+  AlertTriangle,
+  CreditCard,
+  Globe,
+  Server,
+  ArrowLeft
+} from 'lucide-react';
+import toast from 'react-hot-toast';
 
-export default function SettingsPage() {
+interface ApiStatus {
+  openai: boolean;
+  google: boolean;
+  kvk: boolean;
+  mandrill: boolean;
+  stripe: boolean;
+  perplexity: boolean;
+}
+
+interface SystemHealth {
+  database: boolean;
+  email_service: boolean;
+  stripe_service: boolean;
+  storage: boolean;
+  cache: boolean;
+}
+
+export default function AdminSettingsPage() {
   const { user, isLoading: authLoading, isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState('payment');
-  
-  // Stripe configuratie
-  const [stripeSecretKey, setStripeSecretKey] = useState('');
-  const [stripePublishableKey, setStripePublishableKey] = useState('');
-  const [isStripeConfiguring, setIsStripeConfiguring] = useState(false);
-  const [stripeConfigSuccess, setStripeConfigSuccess] = useState(false);
-  const [stripeConfigError, setStripeConfigError] = useState<string | null>(null);
-  
-  // Opgeslagen keys
-  const [savedSecretKey, setSavedSecretKey] = useState<string | null>(null);
-  const [savedPublishableKey, setSavedPublishableKey] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('discovery');
+  const [apiStatus, setApiStatus] = useState<ApiStatus>({
+    openai: false,
+    google: false,
+    kvk: false,
+    mandrill: false,
+    stripe: false,
+    perplexity: false
+  });
+  const [systemHealth, setSystemHealth] = useState<SystemHealth>({
+    database: false,
+    email_service: false,
+    stripe_service: false,
+    storage: false,
+    cache: false
+  });
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Mandrill configuratie
-  const [mandrillApiKey, setMandrillApiKey] = useState('');
-  const [mandrillFromEmail, setMandrillFromEmail] = useState('');
-  const [mandrillFromName, setMandrillFromName] = useState('');
-  const [isMandrillConfiguring, setIsMandrillConfiguring] = useState(false);
-  const [mandrillConfigSuccess, setMandrillConfigSuccess] = useState(false);
-  const [mandrillConfigError, setMandrillConfigError] = useState<string | null>(null);
-  
-  // Email templates
-  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null);
-  
-  // Toevoegen state voor testmail
-  const [testEmail, setTestEmail] = useState('');
-  const [sendingTest, setSendingTest] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-
-  // Test mode state
-  const [isTestMode, setIsTestMode] = useState(true); // Default to test mode
-  const [testModeLoading, setTestModeLoading] = useState(false);
-
-  // Lees de opgeslagen Stripe keys uit localStorage bij het laden van de pagina en na configuratie
+  // Load API status en system health bij component mount
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      // Direct controleren bij laden van de pagina
-      checkAndUpdateStripeStatus();
-      // Load test mode setting
-      const savedTestMode = localStorage.getItem('STRIPE_TEST_MODE');
-      if (savedTestMode !== null) {
-        setIsTestMode(savedTestMode === 'true');
-      }
-    }
-  }, []); // Leeg afhankelijkheidsarray om alleen bij het laden van de pagina uit te voeren
-
-  // Controleer opnieuw na een succesvolle configuratie
-  useEffect(() => {
-    if (stripeConfigSuccess && typeof window !== 'undefined') {
-      // Even wachten om localStorage update tijd te geven
-      setTimeout(() => {
-        checkAndUpdateStripeStatus();
-      }, 500);
-    }
-  }, [stripeConfigSuccess]);
-
-  // Functie om stripe status te controleren en bij te werken
-  const checkAndUpdateStripeStatus = () => {
-    console.log('Checking Stripe configuration status...');
-    
-    try {
-      // Direct uit localStorage lezen voor meest recente status
-      const secretKey = localStorage.getItem('STRIPE_SECRET_KEY');
-      const publishableKey = localStorage.getItem('STRIPE_PUBLISHABLE_KEY');
-      
-      console.log('Stripe keys status check:', {
-        secretKeyPresent: !!secretKey,
-        secretKeyLength: secretKey?.length || 0,
-        publishableKeyPresent: !!publishableKey,
-        publishableKeyLength: publishableKey?.length || 0
-      });
-      
-      setSavedSecretKey(secretKey);
-      setSavedPublishableKey(publishableKey);
-      
-      // Debug waar de warning vandaan komt
-      const stripeSection = document.getElementById('stripe-configuration-section');
-      if (stripeSection) {
-        console.log('Stripe section content:', stripeSection.innerHTML);
-      }
-    } catch (e) {
-      console.error('Error checking Stripe status:', e);
-    }
-  };
-
-  const handleStripeConfig = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    toast.success('Stripe is al geconfigureerd met hardcoded test keys');
-  };
-
-  // Effect om de status te controleren bij page load
-  useEffect(() => {
-    checkAndUpdateStripeStatus();
-    
-    // Controleer of localStorage wordt bijgewerkt door een test waarde op te slaan en te lezen
-    try {
-      localStorage.setItem('STRIPE_TEST_VALUE', 'test');
-      const testValue = localStorage.getItem('STRIPE_TEST_VALUE');
-      console.log('localStorage test:', testValue === 'test' ? 'working' : 'not working');
-      localStorage.removeItem('STRIPE_TEST_VALUE');
-    } catch (e) {
-      console.error('localStorage test failed:', e);
-    }
+    loadSystemStatus();
   }, []);
 
-  // Mandrill configuratie handler
-  const handleMandrillConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsMandrillConfiguring(true);
-    setMandrillConfigSuccess(false);
-    setMandrillConfigError(null);
-    
+  const loadSystemStatus = async () => {
     try {
-      const response = await fetch('/api/email/config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          apiKey: mandrillApiKey,
-          fromEmail: mandrillFromEmail || undefined,
-          fromName: mandrillFromName || undefined,
-        }),
-      });
+      setStatusLoading(true);
       
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Er is een fout opgetreden bij het configureren van Mandrill.');
+      // Load API status
+      const apiResponse = await fetch('/api/commercial/status');
+      if (apiResponse.ok) {
+        const apiData = await apiResponse.json();
+        setApiStatus({
+          openai: apiData.api_keys_configured?.openai || false,
+          google: apiData.api_keys_configured?.google_places || false,
+          kvk: apiData.api_keys_configured?.kvk_api || false,
+          mandrill: !!process.env.NEXT_PUBLIC_MANDRILL_API_KEY,
+          stripe: !!process.env.NEXT_PUBLIC_STRIPE_TEST_PUBLISHABLE_KEY,
+          perplexity: !!process.env.NEXT_PUBLIC_PERPLEXITY_API_KEY
+        });
       }
-      
-      setMandrillConfigSuccess(true);
-      // Clear inputs after successful configuration
-      setMandrillApiKey('');
-      setMandrillFromEmail('');
-      setMandrillFromName('');
-    } catch (error) {
-      setMandrillConfigError(error instanceof Error ? error.message : 'Er is een onverwachte fout opgetreden.');
-      console.error('Error configuring Mandrill:', error);
-    } finally {
-      setIsMandrillConfiguring(false);
-    }
-  };
 
-  // Functie om de status van de Stripe configuratie weer te geven
-  const renderStripeStatus = () => {
-    // Hardcoded Stripe keys are being used
-    return (
-      <div className="my-4 p-4 rounded-md bg-green-50 border border-green-200">
-        <div className="flex">
-          <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3">
-            <h3 className="text-sm font-medium text-green-800">Stripe configuratie gevonden</h3>
-            <div className="mt-2 text-sm text-green-700">
-              <p>Stripe API sleutels zijn hardcoded geconfigureerd en klaar voor gebruik.</p>
-              <p className="mt-1">Secret Key: sk_test_51LmLUMJtFvAJ7sDP...5O</p>
-              <p>Publishable Key: pk_test_51LmLUMJtFvAJ7sDP...2B</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Handler voor testmail versturen
-  const handleSendTestMail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSendingTest(true);
-    setTestResult(null);
-    try {
-      const response = await fetch('/api/email/config/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: testEmail }),
-      });
-      const data = await response.json();
-      if (response.ok && data.success) {
-        setTestResult({ success: true, message: 'Testmail verzonden naar ' + testEmail });
-      } else {
-        setTestResult({ success: false, message: data.error || 'Fout bij verzenden testmail' });
+      // Load system health
+      const healthResponse = await fetch('/api/system/health');
+      if (healthResponse.ok) {
+        const healthData = await healthResponse.json();
+        setSystemHealth(healthData.health || {
+          database: true,
+          email_service: true,
+          stripe_service: true,
+          storage: true,
+          cache: true
+        });
       }
+
     } catch (error) {
-      setTestResult({ success: false, message: 'Onbekende fout bij verzenden testmail' });
+      console.error('Error loading system status:', error);
+      toast.error('Fout bij laden systeem status');
     } finally {
-      setSendingTest(false);
+      setStatusLoading(false);
     }
   };
 
-  // Handler voor test mode toggle
-  const handleTestModeToggle = async (enabled: boolean) => {
-    setTestModeLoading(true);
-    try {
-      // Save to localStorage
-      localStorage.setItem('STRIPE_TEST_MODE', enabled.toString());
-      setIsTestMode(enabled);
-      
-      // Show success message
-      toast.success(
-        enabled 
-          ? 'Test modus geactiveerd - gebruik test creditcards voor betalingen' 
-          : 'Live modus geactiveerd - echte betalingen worden verwerkt'
-      );
-    } catch (error) {
-      toast.error('Fout bij wijzigen van test modus');
-      console.error('Error toggling test mode:', error);
-    } finally {
-      setTestModeLoading(false);
-    }
+  const refreshSystemStatus = async () => {
+    setIsRefreshing(true);
+    await loadSystemStatus();
+    setIsRefreshing(false);
+    toast.success('Systeem status ververst!');
   };
 
+  const runProductionReadinessCheck = () => {
+    window.open('/api/commercial/production-readiness', '_blank');
+  };
+
+  // Loading state
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col">
         <Navbar />
         <div className="flex-grow flex justify-center items-center">
-          <svg className="animate-spin h-10 w-10 text-pink-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <svg className="animate-spin h-10 w-10 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
@@ -247,6 +150,7 @@ export default function SettingsPage() {
     );
   }
 
+  // Access denied
   if (!user || !isAdmin) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -259,7 +163,7 @@ export default function SettingsPage() {
             </p>
             <Link 
               href="/login" 
-              className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-pink-600 hover:bg-pink-700"
+              className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
             >
               Inloggen
             </Link>
@@ -277,429 +181,447 @@ export default function SettingsPage() {
       <div className="flex-grow">
         <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
           <div className="px-4 py-6 sm:px-0">
-            <div className="pb-5 mb-6 flex justify-between items-center">
-              <div>
-                <h2 className="text-2xl font-bold leading-6 text-gray-900">Instellingen</h2>
-                <p className="mt-2 text-sm text-gray-500">
-                  Beheer alle instellingen voor uw Wasgeurtje retailer platform.
-                </p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <BackButton route="/dashboard" label="Terug naar Dashboard" />
-                <LogoutButton variant="secondary" />
-              </div>
+            <div className="mb-4">
+              <Breadcrumbs />
             </div>
             
-            <div className="bg-white shadow rounded-lg overflow-hidden">
-              <div className="border-b border-gray-200">
-                <nav className="flex -mb-px">
-                  <button
-                    onClick={() => setActiveTab('payment')}
-                    className={`py-4 px-6 font-medium text-sm border-b-2 focus:outline-none ${
-                      activeTab === 'payment'
-                        ? 'border-pink-500 text-pink-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    Betalingsinstellingen
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('email')}
-                    className={`py-4 px-6 font-medium text-sm border-b-2 focus:outline-none ${
-                      activeTab === 'email'
-                        ? 'border-pink-500 text-pink-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    E-mailinstellingen
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('branding')}
-                    className={`py-4 px-6 font-medium text-sm border-b-2 focus:outline-none ${
-                      activeTab === 'branding'
-                        ? 'border-pink-500 text-pink-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    Huisstijl
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('templates')}
-                    className={`py-4 px-6 font-medium text-sm border-b-2 focus:outline-none ${
-                      activeTab === 'templates'
-                        ? 'border-pink-500 text-pink-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    E-mail Templates
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('account')}
-                    className={`py-4 px-6 font-medium text-sm border-b-2 focus:outline-none ${
-                      activeTab === 'account'
-                        ? 'border-pink-500 text-pink-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    Account
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('notifications')}
-                    className={`py-4 px-6 font-medium text-sm border-b-2 focus:outline-none ${
-                      activeTab === 'notifications'
-                        ? 'border-pink-500 text-pink-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    Notificaties
-                  </button>
-                </nav>
+            <div className="pb-5 border-b border-gray-200 flex justify-between items-center">
+              <div>
+                <h1 className="text-2xl font-bold leading-6 text-gray-900">Instellingen</h1>
+                <p className="mt-2 text-sm text-gray-500">
+                  Beheer alle systeem instellingen, API configuraties en monitoring dashboard.
+                </p>
               </div>
-              
-              <div className="p-6">
-                {activeTab === 'payment' && (
-                  <div>
-                    <div className="md:grid md:grid-cols-3 md:gap-6">
-                      <div className="md:col-span-1">
-                        <h3 className="text-lg font-medium leading-6 text-gray-900">Stripe Configuratie</h3>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Configureer Stripe betalingen voor uw retailer platform. U heeft hiervoor de API sleutels van uw Stripe account nodig.
+              <div className="flex items-center space-x-4">
+                <Link 
+                  href="/dashboard"
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Terug naar dashboard
+                </Link>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <Tabs value={activeTab} onValueChange={setActiveTab} defaultValue="discovery" className="space-y-6">
+                <TabsList className="grid w-full grid-cols-8 bg-white border border-gray-200 p-1">
+                  <TabsTrigger 
+                    value="discovery" 
+                    className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200 data-[state=active]:text-blue-600 data-[state=active]:bg-blue-50"
+                  >
+                    <Brain className="h-4 w-4" />
+                    Discovery AI
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="apis" 
+                    className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200 data-[state=active]:text-blue-600 data-[state=active]:bg-blue-50"
+                  >
+                    <Key className="h-4 w-4" />
+                    API Keys
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="email" 
+                    className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200 data-[state=active]:text-blue-600 data-[state=active]:bg-blue-50"
+                  >
+                    <Mail className="h-4 w-4" />
+                    Email
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="branding" 
+                    className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200 data-[state=active]:text-blue-600 data-[state=active]:bg-blue-50"
+                  >
+                    <Palette className="h-4 w-4" />
+                    Branding
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="payment" 
+                    className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200 data-[state=active]:text-blue-600 data-[state=active]:bg-blue-50"
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    Payment
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="system" 
+                    className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200 data-[state=active]:text-blue-600 data-[state=active]:bg-blue-50"
+                  >
+                    <Server className="h-4 w-4" />
+                    System
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="account" 
+                    className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200 data-[state=active]:text-blue-600 data-[state=active]:bg-blue-50"
+                  >
+                    <User className="h-4 w-4" />
+                    Account
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="notifications" 
+                    className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200 data-[state=active]:text-blue-600 data-[state=active]:bg-blue-50"
+                  >
+                    <Bell className="h-4 w-4" />
+                    Notificaties
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Discovery AI Settings */}
+                <TabsContent value="discovery" className="space-y-6">
+                  <DiscoverySettingsManager />
+                </TabsContent>
+
+                {/* API Configuration */}
+                <TabsContent value="apis" className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Key className="h-6 w-6 text-green-600" />
+                        API Keys & External Services
+                      </CardTitle>
+                      <CardDescription>
+                        Configureer en monitor alle externe API integraties
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      {/* API Status Overview */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <ApiStatusCard 
+                          name="Perplexity AI"
+                          description="Real-time business discovery"
+                          isConfigured={apiStatus.perplexity}
+                          isLoading={statusLoading}
+                        />
+                        <ApiStatusCard 
+                          name="OpenAI API"
+                          description="AI email optimization"
+                          isConfigured={apiStatus.openai}
+                          isLoading={statusLoading}
+                        />
+                        <ApiStatusCard 
+                          name="Google Places"
+                          description="Business discovery"
+                          isConfigured={apiStatus.google}
+                          isLoading={statusLoading}
+                        />
+                        <ApiStatusCard 
+                          name="KvK API"
+                          description="Nederlandse bedrijfsdata"
+                          isConfigured={apiStatus.kvk}
+                          isLoading={statusLoading}
+                        />
+                        <ApiStatusCard 
+                          name="Mandrill Email"
+                          description="Email delivery service"
+                          isConfigured={apiStatus.mandrill}
+                          isLoading={statusLoading}
+                        />
+                        <ApiStatusCard 
+                          name="Stripe Payments"
+                          description="Payment processing"
+                          isConfigured={apiStatus.stripe}
+                          isLoading={statusLoading}
+                        />
+                      </div>
+
+                      {/* API Configuration Instructions */}
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                        <h3 className="text-lg font-bold text-blue-900 mb-4">🚀 API Setup Instructions</h3>
+                        <p className="text-blue-800 mb-4">
+                          Voor volledige automatisering configureer de volgende API's in je .env.local bestand:
                         </p>
                         
-                        {/* Toon de huidige status van Stripe configuratie */}
-                        {renderStripeStatus()}
-                        
-                        {/* Test Mode Toggle */}
-                        <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-md p-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h4 className="text-sm font-medium text-yellow-800">
-                                Betaling Test Modus
-                              </h4>
-                              <p className="text-sm text-yellow-700 mt-1">
-                                {isTestMode 
-                                  ? 'Test modus actief - gebruik test creditcards (4242 4242 4242 4242)'
-                                  : 'Live modus actief - echte betalingen worden verwerkt'
-                                }
-                              </p>
-                            </div>
-                            <div className="flex items-center">
-                              <button
-                                type="button"
-                                disabled={testModeLoading}
-                                onClick={() => handleTestModeToggle(!isTestMode)}
-                                className={`${
-                                  isTestMode ? 'bg-yellow-600' : 'bg-gray-200'
-                                } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 disabled:opacity-50`}
-                              >
-                                <span
-                                  className={`${
-                                    isTestMode ? 'translate-x-5' : 'translate-x-0'
-                                  } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
-                                />
-                              </button>
-                              <span className="ml-3 text-sm text-yellow-800 font-medium">
-                                {isTestMode ? 'Test' : 'Live'}
-                              </span>
-                            </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="bg-white p-4 rounded-lg border border-blue-200">
+                            <h4 className="font-bold text-gray-900 mb-2">🧠 Perplexity AI</h4>
+                            <p className="text-sm text-gray-600 mb-2">Real-time business discovery</p>
+                            <code className="text-xs bg-gray-100 p-1 rounded">PERPLEXITY_API_KEY=pplx-xxx</code>
                           </div>
                           
-                          {isTestMode && (
-                            <div className="mt-4 p-3 bg-yellow-100 rounded border border-yellow-300">
-                              <h5 className="text-sm font-medium text-yellow-800 mb-2">Test Creditcard Gegevens:</h5>
-                              <div className="text-xs text-yellow-700 space-y-1">
-                                <p><strong>Nummer:</strong> 4242 4242 4242 4242</p>
-                                <p><strong>Vervaldatum:</strong> 12/34 (elke datum in de toekomst)</p>
-                                <p><strong>CVC:</strong> 123 (elke 3 cijfers)</p>
-                                <p><strong>Naam:</strong> Elke naam</p>
-                                <p className="mt-2 text-xs text-yellow-600 font-medium">
-                                  ⚠️ Gebruik alleen deze gegevens in test modus
-                                </p>
-                              </div>
+                          <div className="bg-white p-4 rounded-lg border border-blue-200">
+                            <h4 className="font-bold text-gray-900 mb-2">🌐 Google Places API</h4>
+                            <p className="text-sm text-gray-600 mb-2">Business discovery fallback</p>
+                            <code className="text-xs bg-gray-100 p-1 rounded">GOOGLE_PLACES_API_KEY=xxx</code>
+                          </div>
+                          
+                          <div className="bg-white p-4 rounded-lg border border-blue-200">
+                            <h4 className="font-bold text-gray-900 mb-2">🏢 KvK API</h4>
+                            <p className="text-sm text-gray-600 mb-2">Nederlandse bedrijfsdata</p>
+                            <code className="text-xs bg-gray-100 p-1 rounded">KVK_API_KEY=xxx</code>
+                          </div>
+                          
+                          <div className="bg-white p-4 rounded-lg border border-blue-200">
+                            <h4 className="font-bold text-gray-900 mb-2">📧 Mandrill Email</h4>
+                            <p className="text-sm text-gray-600 mb-2">Transactional emails</p>
+                            <code className="text-xs bg-gray-100 p-1 rounded">MANDRILL_API_KEY=xxx</code>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* System Actions */}
+                      <div className="flex gap-4">
+                        <Button 
+                          onClick={refreshSystemStatus}
+                          disabled={isRefreshing}
+                          className="flex items-center gap-2"
+                        >
+                          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                          Refresh Status
+                        </Button>
+                        <Button 
+                          onClick={runProductionReadinessCheck}
+                          variant="outline"
+                          className="flex items-center gap-2"
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                          Production Check
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* Email Settings */}
+                <TabsContent value="email" className="space-y-6">
+                  {/* Mandrill Diagnostics */}
+                  <MandrillDiagnostics />
+                  
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Email Templates</CardTitle>
+                        <CardDescription>Beheer email templates voor automatische campaigns</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <EmailTemplateList onSelect={() => {}} selectedTemplateKey="" />
+                      </CardContent>
+                    </Card>
+                    
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Email Diagnostics</CardTitle>
+                        <CardDescription>Test en monitor email delivery</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <EmailDiagnostics />
+                      </CardContent>
+                    </Card>
+                  </div>
+                  
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Email Template Editor</CardTitle>
+                      <CardDescription>Maak en bewerk email templates</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <EmailTemplateEditor templateKey="" />
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* Branding Settings */}
+                <TabsContent value="branding">
+                  <BrandingSettings />
+                </TabsContent>
+
+                {/* Payment Settings */}
+                <TabsContent value="payment" className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <CreditCard className="h-6 w-6 text-orange-600" />
+                        Stripe Payment Configuration
+                      </CardTitle>
+                      <CardDescription>
+                        Configureer Stripe voor automatische betalingen en order processing
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-4">
+                          <h3 className="text-lg font-semibold">Test Environment</h3>
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Test Publishable Key
+                              </label>
+                              <Input 
+                                type="password"
+                                placeholder="pk_test_..."
+                                className="font-mono text-sm"
+                              />
                             </div>
-                          )}
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Test Secret Key
+                              </label>
+                              <Input 
+                                type="password"
+                                placeholder="sk_test_..."
+                                className="font-mono text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Webhook Secret
+                              </label>
+                              <Input 
+                                type="password"
+                                placeholder="whsec_..."
+                                className="font-mono text-sm"
+                              />
+                            </div>
+                          </div>
                         </div>
                         
-                        <div className="mt-6 bg-blue-50 p-4 rounded-md border border-blue-200">
-                          <h4 className="text-sm font-medium text-blue-800">Tips voor Stripe configuratie:</h4>
-                          <ul className="mt-2 text-sm text-blue-700 space-y-1 list-disc list-inside">
-                            <li>Maak een account aan op stripe.com als u er nog geen heeft</li>
-                            <li>Ga naar het Developers gedeelte in uw Stripe dashboard</li>
-                            <li>Kopieer de API sleutels (Publishable key en Secret key)</li>
-                            <li>Test uw configuratie voordat u live gaat</li>
-                          </ul>
+                        <div className="space-y-4">
+                          <h3 className="text-lg font-semibold">Production Environment</h3>
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Live Publishable Key
+                              </label>
+                              <Input 
+                                type="password"
+                                placeholder="pk_live_..."
+                                className="font-mono text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Live Secret Key
+                              </label>
+                              <Input 
+                                type="password"
+                                placeholder="sk_live_..."
+                                className="font-mono text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Live Webhook Secret
+                              </label>
+                              <Input 
+                                type="password"
+                                placeholder="whsec_..."
+                                className="font-mono text-sm"
+                              />
+                            </div>
+                          </div>
                         </div>
                       </div>
-                      <div className="mt-5 md:mt-0 md:col-span-2">
-                        <form onSubmit={handleStripeConfig}>
-                          <div className="shadow overflow-hidden sm:rounded-md">
-                            <div className="px-4 py-5 bg-white sm:p-6">
-                              {stripeConfigSuccess && (
-                                <div className="mb-4 p-4 rounded-md bg-green-50 border border-green-200">
-                                  <div className="flex">
-                                    <div className="flex-shrink-0">
-                                      <svg className="h-5 w-5 text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                      </svg>
-                                    </div>
-                                    <div className="ml-3">
-                                      <h3 className="text-sm font-medium text-green-800">Stripe configuratie succesvol!</h3>
-                                      <div className="mt-2 text-sm text-green-700">
-                                        <p>Uw Stripe API sleutels zijn succesvol geconfigureerd. U kunt nu betalingen ontvangen.</p>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
+
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                        <h4 className="font-semibold text-orange-900 mb-2">💳 Stripe Configuration</h4>
+                        <p className="text-orange-800 text-sm mb-3">
+                          Voor automatische order processing en betalingen configureer Stripe webhooks:
+                        </p>
+                        <ul className="text-orange-800 text-sm space-y-1">
+                          <li>• <code>checkout.session.completed</code></li>
+                          <li>• <code>payment_intent.succeeded</code></li>
+                          <li>• <code>invoice.payment_succeeded</code></li>
+                        </ul>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* System Health & Monitoring */}
+                <TabsContent value="system" className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Activity className="h-6 w-6 text-red-600" />
+                        System Health & Monitoring
+                      </CardTitle>
+                      <CardDescription>
+                        Monitor system health, database, services en performance
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      {/* System Health Status */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                        {Object.entries(systemHealth).map(([service, status]) => (
+                          <div 
+                            key={service}
+                            className={`p-4 rounded-lg border-2 ${
+                              status 
+                                ? 'border-green-200 bg-green-50' 
+                                : 'border-red-200 bg-red-50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-gray-900 capitalize">
+                                {service.replace('_', ' ')}
+                              </span>
+                              {status ? (
+                                <CheckCircle className="h-5 w-5 text-green-600" />
+                              ) : (
+                                <AlertTriangle className="h-5 w-5 text-red-600" />
                               )}
-                              
-                              {stripeConfigError && (
-                                <div className="mb-4 p-4 rounded-md bg-red-50 border border-red-200">
-                                  <div className="flex">
-                                    <div className="flex-shrink-0">
-                                      <svg className="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                      </svg>
-                                    </div>
-                                    <div className="ml-3">
-                                      <h3 className="text-sm font-medium text-red-800">Er is een fout opgetreden</h3>
-                                      <div className="mt-2 text-sm text-red-700">
-                                        <p>{stripeConfigError}</p>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                              
-                              <div className="grid grid-cols-6 gap-6">
-                                <div className="col-span-6">
-                                  <label htmlFor="stripe-secret-key" className="block text-sm font-medium text-gray-700">
-                                    Stripe Secret Key
-                                  </label>
-                                  <input
-                                    type="password"
-                                    name="stripe-secret-key"
-                                    id="stripe-secret-key"
-                                    value={stripeSecretKey}
-                                    onChange={(e) => setStripeSecretKey(e.target.value)}
-                                    placeholder="sk_test_..."
-                                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm text-gray-900"
-                                    required
-                                  />
-                                  <p className="mt-1 text-xs text-gray-500">Deze key is geheim en moet nooit aan anderen worden gedeeld.</p>
-                                </div>
-                                
-                                <div className="col-span-6">
-                                  <label htmlFor="stripe-publishable-key" className="block text-sm font-medium text-gray-700">
-                                    Stripe Publishable Key
-                                  </label>
-                                  <input
-                                    type="text"
-                                    name="stripe-publishable-key"
-                                    id="stripe-publishable-key"
-                                    value={stripePublishableKey}
-                                    onChange={(e) => setStripePublishableKey(e.target.value)}
-                                    placeholder="pk_test_..."
-                                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm text-gray-900"
-                                    required
-                                  />
-                                </div>
-                              </div>
                             </div>
-                            <div className="px-4 py-3 bg-gray-50 text-right sm:px-6">
-                              <button
-                                type="submit"
-                                disabled={isStripeConfiguring}
-                                className={`inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 ${
-                                  isStripeConfiguring ? 'opacity-70 cursor-not-allowed' : ''
-                                }`}
+                            <div className="mt-1">
+                              <Badge 
+                                variant={status ? "default" : "error"}
+                                className="text-xs"
                               >
-                                {isStripeConfiguring ? (
-                                  <>
-                                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    Configureren...
-                                  </>
-                                ) : (
-                                  'Configureer Stripe'
-                                )}
-                              </button>
+                                {status ? 'Healthy' : 'Error'}
+                              </Badge>
                             </div>
                           </div>
-                        </form>
+                        ))}
                       </div>
-                    </div>
-                  </div>
-                )}
-                
-                {activeTab === 'email' && (
-                  <div>
-                    <div className="md:grid md:grid-cols-3 md:gap-6">
-                      <div className="md:col-span-1">
-                        <h3 className="text-lg font-medium leading-6 text-gray-900">Test E-mailservice</h3>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Test of de e-mailservice correct werkt. De Mandrill API key wordt alleen uit de .env.local geladen en kan niet via deze interface worden aangepast.
-                        </p>
-                        <div className="mt-6 bg-blue-50 p-4 rounded-md border border-blue-200">
-                          <h4 className="text-sm font-medium text-blue-800">Let op:</h4>
-                          <ul className="mt-2 text-sm text-blue-700 space-y-1 list-disc list-inside">
-                            <li>De Mandrill API key is hardcoded in de serveromgeving (.env.local).</li>
-                            <li>Je kunt hier alleen een testmail versturen.</li>
-                            <li>Wil je de afzender aanpassen? Pas <code>MAIL_FROM_EMAIL</code> en <code>MAIL_FROM_NAME</code> aan in de .env.local.</li>
-                          </ul>
+
+                      {/* Environment Information */}
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                        <h4 className="font-semibold text-gray-900 mb-3">Environment Information</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                          <div>
+                            <span className="font-medium text-gray-700">Environment:</span>
+                            <span className="ml-2">{process.env.NODE_ENV || 'development'}</span>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700">Database:</span>
+                            <span className="ml-2">Supabase</span>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700">Storage:</span>
+                            <span className="ml-2">Supabase Storage</span>
+                          </div>
                         </div>
                       </div>
-                      <div className="mt-5 md:mt-0 md:col-span-2">
-                        <form onSubmit={handleSendTestMail} className="shadow overflow-hidden sm:rounded-md">
-                          <div className="px-4 py-5 bg-white sm:p-6">
-                            <div className="grid grid-cols-6 gap-6">
-                              <div className="col-span-6">
-                                <label htmlFor="test-email" className="block text-sm font-medium text-gray-700">
-                                  Test e-mailadres
-                                </label>
-                                <input
-                                  type="email"
-                                  name="test-email"
-                                  id="test-email"
-                                  required
-                                  value={testEmail}
-                                  onChange={(e) => setTestEmail(e.target.value)}
-                                  placeholder="jouw@email.nl"
-                                  className="mt-1 focus:ring-pink-500 focus:border-pink-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md text-gray-900"
-                                />
-                              </div>
-                            </div>
-                            {testResult && (
-                              <div className={`mt-4 p-3 rounded ${testResult.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                {testResult.message}
-                              </div>
-                            )}
-                          </div>
-                          <div className="px-4 py-3 bg-gray-50 text-right sm:px-6">
-                            <button
-                              type="submit"
-                              disabled={sendingTest}
-                              className={`inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 ${sendingTest ? 'opacity-70 cursor-not-allowed' : ''}`}
-                            >
-                              {sendingTest ? 'Versturen...' : 'Verstuur testmail'}
-                            </button>
-                          </div>
-                        </form>
+
+                      {/* System Actions */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Button 
+                          onClick={refreshSystemStatus}
+                          className="flex items-center gap-2"
+                          disabled={isRefreshing}
+                        >
+                          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                          Refresh System Status
+                        </Button>
+                        <Button 
+                          onClick={runProductionReadinessCheck}
+                          variant="outline"
+                          className="flex items-center gap-2"
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                          Production Readiness Check
+                        </Button>
                       </div>
-                    </div>
-                  </div>
-                )}
-                
-                {activeTab === 'branding' && (
-                  <div>
-                    <div className="md:grid md:grid-cols-3 md:gap-6">
-                      <div className="md:col-span-1">
-                        <h3 className="text-lg font-medium leading-6 text-gray-900">Huisstijl Instellingen</h3>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Pas uw logo, kleuren en bedrijfsnaam aan voor gebruik in e-mails en op het platform.
-                        </p>
-                        <div className="mt-6 bg-blue-50 p-4 rounded-md border border-blue-200">
-                          <h4 className="text-sm font-medium text-blue-800">Tips voor huisstijl:</h4>
-                          <ul className="mt-2 text-sm text-blue-700 space-y-1 list-disc list-inside">
-                            <li>Upload een logo in PNG of SVG formaat voor de beste kwaliteit</li>
-                            <li>Kies een accentkleur die past bij uw huisstijl</li>
-                            <li>De bedrijfsnaam wordt gebruikt in e-mails en facturen</li>
-                          </ul>
-                        </div>
-                      </div>
-                      <div className="mt-5 md:mt-0 md:col-span-2">
-                        <BrandingSettings />
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {activeTab === 'templates' && (
-                  <div>
-                    <div className="md:grid md:grid-cols-4 md:gap-6">
-                      <div className="md:col-span-1">
-                        <h3 className="text-lg font-medium leading-6 text-gray-900">E-mail Templates</h3>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Beheer en pas de e-mail templates aan die worden gebruikt voor communicatie met retailers en klanten.
-                        </p>
-                        <div className="mt-6">
-                          <EmailTemplateList 
-                            onSelect={(key) => setSelectedTemplateKey(key)}
-                            selectedTemplateKey={selectedTemplateKey}
-                          />
-                        </div>
-                        <div className="mt-6 bg-blue-50 p-4 rounded-md border border-blue-200">
-                          <h3 className="text-lg font-medium text-blue-800">Template Variabelen</h3>
-                          <p className="mt-1 text-xs text-gray-700">
-                            Gebruik <code className="bg-white text-pink-600 px-1 rounded">{'{{variabele}}'}</code> syntax om dynamische inhoud toe te voegen.
-                          </p>
-                          <p className="mt-2 text-xs text-gray-700">
-                            <span className="font-semibold">Algemene variabelen:</span>
-                          </p>
-                          <div className="mt-1 grid grid-cols-2 gap-2">
-                            <code className="text-xs bg-white text-pink-600 px-2 py-1 rounded font-mono">{'{{contactName}}'}</code>
-                            <code className="text-xs bg-white text-pink-600 px-2 py-1 rounded font-mono">{'{{businessName}}'}</code>
-                            <code className="text-xs bg-white text-pink-600 px-2 py-1 rounded font-mono">{'{{email}}'}</code>
-                            <code className="text-xs bg-white text-pink-600 px-2 py-1 rounded font-mono">{'{{phone}}'}</code>
-                            <code className="text-xs bg-white text-pink-600 px-2 py-1 rounded font-mono">{'{{logoUrl}}'}</code>
-                            <code className="text-xs bg-white text-pink-600 px-2 py-1 rounded font-mono">{'{{currentYear}}'}</code>
-                          </div>
-                          <p className="mt-2 text-xs text-gray-700">
-                            <span className="font-semibold">Conditionele blokken:</span>
-                          </p>
-                          <code className="block mt-1 text-xs bg-white text-pink-600 px-2 py-1 rounded font-mono">
-                            {'{{#if variabele}}'}<br />
-                            {'  content'}<br />
-                            {'{{/if}}'}
-                          </code>
-                          <p className="mt-2 text-xs text-gray-700">
-                            <span className="font-semibold">Iteraties:</span>
-                          </p>
-                          <code className="block mt-1 text-xs bg-white text-pink-600 px-2 py-1 rounded font-mono">
-                            {'{{#each items}}'}<br />
-                            {'  {{name}} - {{price}}'}<br />
-                            {'{{/each}}'}
-                          </code>
-                        </div>
-                      </div>
-                      
-                      <div className="mt-5 md:mt-0 md:col-span-3">
-                        {selectedTemplateKey ? (
-                          <EmailTemplateEditor
-                            templateKey={selectedTemplateKey}
-                            onSave={() => {
-                              // Eventueel template lijst vernieuwen
-                            }}
-                          />
-                        ) : (
-                          <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-                            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
-                            </svg>
-                            <h3 className="mt-2 text-sm font-medium text-gray-900">Selecteer een template</h3>
-                            <p className="mt-1 text-sm text-gray-500">
-                              Kies een template uit de lijst om te bewerken of te testen.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {activeTab === 'account' && (
-                  <div>
-                    <AccountSettings />
-                  </div>
-                )}
-                
-                {activeTab === 'notifications' && (
-                  <div>
-                    <NotificationSettings />
-                  </div>
-                )}
-              </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* Account Settings */}
+                <TabsContent value="account">
+                  <AccountSettings />
+                </TabsContent>
+
+                {/* Notification Settings */}
+                <TabsContent value="notifications">
+                  <NotificationSettings />
+                </TabsContent>
+              </Tabs>
             </div>
           </div>
         </div>

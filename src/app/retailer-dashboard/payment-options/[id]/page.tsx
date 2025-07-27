@@ -36,32 +36,56 @@ export default function PaymentOptionsPage() {
   useEffect(() => {
     if (!id) return;
     
-    const loadApplication = () => {
+    const loadApplication = async () => {
       try {
-        // In a real implementation, this would be an API call
-        const storedApplications = localStorage.getItem('wasstrips-applications');
-        if (storedApplications) {
-          const applications = JSON.parse(storedApplications);
-          const app = applications.find((app: WasstripsApplication) => app.id === id);
-          
-          if (app) {
-            setApplication(app);
-            
-            // If payment is already made, show success message
-            if (app.isPaid) {
-              setShowSuccessMessage(true);
-            }
-            
-            // If payment option is already selected, pre-select it
-            if (app.selectedPaymentOption) {
-              setPaymentMethod(app.selectedPaymentOption);
+        console.log('Loading application data for ID:', id);
+        
+        // Haal data op uit database via API
+        const response = await fetch(`/api/wasstrips-applications/${id}`);
+        
+        if (!response.ok) {
+          console.error('API Error:', response.status, response.statusText);
+          if (response.status === 404) {
+            try {
+              const errorData = await response.json();
+              console.error('404 Error details:', errorData);
+              setError(`De aanvraag kon niet worden gevonden. ${errorData.details || ''}`);
+            } catch {
+              setError('De aanvraag kon niet worden gevonden.');
             }
           } else {
-            setError('De aanvraag kon niet worden gevonden.');
+            try {
+              const errorData = await response.json();
+              console.error('Error data:', errorData);
+              setError(errorData.error || 'Er is een fout opgetreden bij het laden van de aanvraag.');
+            } catch {
+              setError(`Er is een fout opgetreden (${response.status}: ${response.statusText}).`);
+            }
           }
-        } else {
-          setError('Geen aanvragen gevonden.');
+          return;
         }
+        
+        const data = await response.json();
+        const app = data.application;
+        
+        if (app) {
+          setApplication(app);
+          
+          // If payment is already made, show success message
+          if (app.isPaid) {
+            setShowSuccessMessage(true);
+          }
+          
+          // If payment option is already selected, pre-select it
+          if (app.selectedPaymentOption) {
+            setPaymentMethod(app.selectedPaymentOption);
+          }
+          
+          console.log('Successfully loaded application:', app);
+        } else {
+          setError('De aanvraag kon niet worden gevonden.');
+        }
+        
       } catch (error) {
         console.error('Error loading application:', error);
         setError('Er is een fout opgetreden bij het laden van de aanvraag.');
@@ -130,30 +154,20 @@ export default function PaymentOptionsPage() {
       setShowSuccessMessage(true);
       
       if (paymentMethod === 'direct') {
-        // Bereid de data voor voor de Stripe API call
-        const items = [{
-          price_data: {
-            currency: 'eur',
-            product_data: {
-              name: 'Wasstrips Pakket',
-              description: `Aanvraag ID: ${application.id}`,
-            },
-            // Gebruik de totaalprijs uit de aanvraag, of een standaardprijs. Bedrag in centen.
-            unit_amount: Math.round((application.total || 450) * 100),
-          },
-          quantity: 1
-        }];
+        // Gebruik de nieuwe directe betaling API voor wasstrips
+        console.log('Processing direct payment for application:', application.id);
 
         // Wacht 1 seconde zodat de gebruiker de boodschap kan zien
         await new Promise(resolve => setTimeout(resolve, 1000));
 
-        const response = await fetch('/api/stripe/create-checkout', {
+        const response = await fetch('/api/stripe/wasstrips-payment', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ 
-            items,
+            applicationId: application.id,
+            paymentType: 'remaining', // Voor directe betaling gaan we ervan uit dat aanbetaling al betaald is
             isTestMode: isTestMode 
           }),
         });
@@ -165,6 +179,7 @@ export default function PaymentOptionsPage() {
 
         const data = await response.json();
         if (data.url) {
+          console.log('Redirecting to Stripe checkout:', data.url);
           window.location.href = data.url;
         } else {
           throw new Error('Geen redirect URL ontvangen van de server.');

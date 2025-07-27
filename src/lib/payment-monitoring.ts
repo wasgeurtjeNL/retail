@@ -4,9 +4,9 @@
 import { Stripe, loadStripe } from '@stripe/stripe-js';
 import { getStripeInstance } from './stripe-server';
 
-// Hardcoded test key voor development
-const STRIPE_PUBLISHABLE_KEY = 'pk_test_51LmLUMJtFvAJ7sDPKPYFmeytjnl4plJADipNJqdTvzv4mgjMdnuNKbsLUUhVw7kTmCF1w1LxmsDfNw4MzDswYYue00yPdbie2B';
-const STRIPE_WEBHOOK_SECRET = 'whsec_abcdefghijklmnopqrstuvwxyz'; // Moet worden vervangen door een echt webhook secret
+// Stripe keys uit environment variabelen
+const STRIPE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_TEST_PUBLISHABLE_KEY;
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
 // Gebruik de bestaande stripePromise
 let stripePromise: Promise<Stripe | null> | null = null;
@@ -46,6 +46,11 @@ export interface Order {
 
 // Initialiseer Stripe-client voor browser gebruik
 export const getStripe = async (): Promise<Stripe | null> => {
+  if (!STRIPE_PUBLISHABLE_KEY) {
+    console.error('NEXT_PUBLIC_STRIPE_TEST_PUBLISHABLE_KEY is not configured');
+    return null;
+  }
+  
   if (!stripePromise) {
     stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
   }
@@ -176,15 +181,21 @@ export const createPaymentIntent = async (
 export const handleWebhookEvent = async (
   body: string,
   signature: string,
-  secret: string = STRIPE_WEBHOOK_SECRET
+  secret?: string
 ): Promise<{ event?: any; error?: string }> => {
   try {
+    const webhookSecret = secret || STRIPE_WEBHOOK_SECRET;
+    
+    if (!webhookSecret) {
+      return { error: 'STRIPE_WEBHOOK_SECRET is not configured' };
+    }
+    
     const stripe = getStripeInstance();
     
     const event = stripe.webhooks.constructEvent(
       body,
       signature,
-      secret
+      webhookSecret
     );
     
     return { event };

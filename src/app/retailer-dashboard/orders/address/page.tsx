@@ -134,7 +134,8 @@ export default function AddressConfirmationPage() {
       const addressData = await fetchAddress(postcode, houseNumber, addition);
       
       if (addressData.exceptionId) {
-        throw new Error("Adres niet gevonden. Controleer uw postcode en huisnummer.");
+        console.error('[AddressPage] API Error:', addressData);
+        throw new Error(addressData.message || "Adres niet gevonden. Controleer uw postcode en huisnummer.");
       }
       
       // Adres is gevonden en gevalideerd, sla het op

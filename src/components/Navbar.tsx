@@ -43,131 +43,129 @@ export default function Navbar() {
 
   return (
     <>
-      {/* B2B Indicator - alleen voor niet-ingelogde gebruikers op frontend */}
-      {!user && (
-        <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-blue-800 text-white sticky top-0 z-50 shadow-lg animate-in slide-in-from-top duration-500">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            {/* Desktop versie */}
-            <div className="hidden sm:flex items-center justify-between py-3">
-              <div className="flex items-center space-x-3">
-                <div className="flex items-center">
-                  <div className="bg-white/20 rounded-full p-2 mr-3 animate-pulse">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm">Wasgeurtje B2B Portal</h3>
-                    <p className="text-blue-100 text-xs">Zakelijke oplossingen voor retailers</p>
-                  </div>
+      {/* B2B Indicator - altijd zichtbaar gemaakt */}
+      <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-blue-800 text-white sticky top-0 z-50 shadow-lg animate-in slide-in-from-top duration-500">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Desktop versie */}
+          <div className="hidden sm:flex items-center justify-between py-3">
+            <div className="flex items-center space-x-3">
+              <div className="flex items-center">
+                <div className="bg-white/20 rounded-full p-2 mr-3 animate-pulse">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
                 </div>
-                
-                {/* Nieuw badge */}
-                <div className="hidden md:block">
-                  <span className="bg-yellow-400 text-blue-900 text-xs font-bold px-2 py-1 rounded-full animate-bounce">
-                    NIEUW
-                  </span>
+                <div>
+                  <h3 className="font-bold text-sm">Wasgeurtje B2B Portal</h3>
+                  <p className="text-blue-100 text-xs">Zakelijke oplossingen voor retailers</p>
                 </div>
               </div>
               
-              <div className="flex items-center space-x-4">
-                <div className="hidden lg:flex items-center space-x-2 text-xs text-blue-100">
-                  <span className="flex items-center hover:text-white transition-colors duration-200">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    Snelle onboarding
-                  </span>
-                  <span className="text-blue-300">•</span>
-                  <span className="flex items-center hover:text-white transition-colors duration-200">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                    </svg>
-                    Aantrekkelijke marges
-                  </span>
-                  <span className="text-blue-300">•</span>
-                  <span className="flex items-center hover:text-white transition-colors duration-200">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                    120+ retailers
-                  </span>
-                </div>
-                
-                <a
-                  href="https://wasgeurtje.nl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group flex items-center space-x-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-full transition-all duration-300 hover:scale-105 backdrop-blur-sm border border-white/20 hover:shadow-lg"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 group-hover:rotate-12 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                  <span className="text-sm font-medium">Naar Consumentenshop</span>
-                  <div className="hidden md:block text-xs text-blue-200 bg-white/10 px-2 py-1 rounded-full group-hover:bg-white/20 transition-colors duration-300">
-                    wasgeurtje.nl
-                  </div>
-                </a>
+              {/* Nieuw badge */}
+              <div className="hidden md:block">
+                <span className="bg-yellow-400 text-blue-900 text-xs font-bold px-2 py-1 rounded-full animate-bounce">
+                  NIEUW
+                </span>
               </div>
             </div>
-
-            {/* Mobile versie */}
-            <div className="sm:hidden py-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="bg-white/20 rounded-full p-1.5 mr-2 animate-pulse">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm">Wasgeurtje B2B Portal</h3>
-                    <p className="text-blue-100 text-xs">Voor retailers</p>
-                  </div>
-                </div>
-                
-                <a
-                  href="https://wasgeurtje.nl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group flex items-center space-x-1 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full transition-all duration-300 backdrop-blur-sm border border-white/20 hover:scale-105"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 group-hover:rotate-12 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                  <span className="text-xs font-medium">Consumentenshop</span>
-                </a>
-              </div>
-              
-              <div className="flex items-center justify-center space-x-3 text-xs text-blue-100">
+            
+            <div className="flex items-center space-x-4">
+              <div className="hidden lg:flex items-center space-x-2 text-xs text-blue-100">
                 <span className="flex items-center hover:text-white transition-colors duration-200">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
-                  Snelle start
+                  Snelle onboarding
                 </span>
                 <span className="text-blue-300">•</span>
                 <span className="flex items-center hover:text-white transition-colors duration-200">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
                   </svg>
-                  Goede marges
+                  Aantrekkelijke marges
                 </span>
                 <span className="text-blue-300">•</span>
                 <span className="flex items-center hover:text-white transition-colors duration-200">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                   </svg>
                   120+ retailers
                 </span>
               </div>
+              
+              <a
+                href="https://wasgeurtje.nl"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center space-x-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-full transition-all duration-300 hover:scale-105 backdrop-blur-sm border border-white/20 hover:shadow-lg"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 group-hover:rotate-12 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                <span className="text-sm font-medium">Naar Consumentenshop</span>
+                <div className="hidden md:block text-xs text-blue-200 bg-white/10 px-2 py-1 rounded-full group-hover:bg-white/20 transition-colors duration-300">
+                  wasgeurtje.nl
+                </div>
+              </a>
             </div>
           </div>
-          
-          {/* Subtle gradient border bottom met animatie */}
-          <div className="h-px bg-gradient-to-r from-transparent via-white/30 to-transparent animate-pulse"></div>
+
+          {/* Mobile versie */}
+          <div className="sm:hidden py-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="bg-white/20 rounded-full p-1.5 mr-2 animate-pulse">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm">Wasgeurtje B2B Portal</h3>
+                  <p className="text-blue-100 text-xs">Voor retailers</p>
+                </div>
+              </div>
+              
+              <a
+                href="https://wasgeurtje.nl"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center space-x-1 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full transition-all duration-300 backdrop-blur-sm border border-white/20 hover:scale-105"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 group-hover:rotate-12 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                <span className="text-xs font-medium">Consumentenshop</span>
+              </a>
+            </div>
+            
+            <div className="flex items-center justify-center space-x-3 text-xs text-blue-100">
+              <span className="flex items-center hover:text-white transition-colors duration-200">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Snelle start
+              </span>
+              <span className="text-blue-300">•</span>
+              <span className="flex items-center hover:text-white transition-colors duration-200">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                </svg>
+                Goede marges
+              </span>
+              <span className="text-blue-300">•</span>
+              <span className="flex items-center hover:text-white transition-colors duration-200">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                120+ retailers
+              </span>
+            </div>
+          </div>
         </div>
-      )}
+        
+        {/* Subtle gradient border bottom met animatie */}
+        <div className="h-px bg-gradient-to-r from-transparent via-white/30 to-transparent animate-pulse"></div>
+      </div>
 
       {/* Top bar with ratings and info */}
       <div className="bg-gray-900 text-white text-xs py-1">

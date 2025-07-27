@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { formatRelativeTime } from '@/lib/utils';
+import { getSupabase } from '@/lib/supabase';
 
 // Interface voor Wasstrips applicaties voor retailers
 interface WasstripsApplication {
@@ -21,58 +21,134 @@ interface WasstripsApplication {
   paymentDueDate?: string;
   total?: number;
   invoiceNumber?: string;
+  // Nieuwe velden van Supabase
+  deposit_status?: 'pending' | 'paid' | 'failed';
+  remaining_payment_status?: 'pending' | 'paid' | 'failed';
+  profile_id?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Database type voor wasstrips applicaties
+interface DatabaseWasstripsApplication {
+  id: string;
+  profile_id: string;
+  status: 'pending' | 'approved' | 'order_ready' | 'payment_selected' | 'rejected' | 'shipped';
+  deposit_status: 'not_sent' | 'sent' | 'paid' | 'failed';
+  remaining_payment_status: 'not_sent' | 'sent' | 'paid' | 'failed';
+  total_amount: string;
+  business_name?: string;
+  contact_name?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface RetailerNotificationProps {
   userEmail?: string;
 }
 
+// Haalt notificaties op uit de database in plaats van localStorage
 export default function RetailerNotification({ userEmail }: RetailerNotificationProps) {
   const [notifications, setNotifications] = useState<WasstripsApplication[]>([]);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Load notifications from localStorage
+  // Load notifications from database
   useEffect(() => {
-    const loadNotifications = () => {
-      if (!userEmail) return;
+    const loadNotifications = async () => {
+      if (!userEmail) {
+        setIsLoading(false);
+        return;
+      }
       
       try {
-        // Load dismissed notifications first
+        console.log('[RetailerNotification] Loading notifications for:', userEmail);
+        
+        // Load dismissed notifications from localStorage
         const storedDismissed = localStorage.getItem('dismissedNotifications');
         if (storedDismissed) {
           setDismissed(JSON.parse(storedDismissed));
         }
         
-        // Load applications from localStorage (admin dashboard storage)
-        const storedApplications = localStorage.getItem('wasstrips-applications');
-        if (storedApplications) {
-          const applications: WasstripsApplication[] = JSON.parse(storedApplications);
+        // Haal notificaties op uit Supabase database
+        const supabase = getSupabase();
+        
+        // Haal eerst het retailer profiel op
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('email', userEmail)
+          .single();
           
-          // Filter applications for this retailer that have payment requested but not paid
-          const relevantApplications = applications.filter(app => 
-            app.email === userEmail && 
-            app.paymentOptionSent && 
-            !app.isPaid
-          );
-          
-          // Verwijder dubbele notificaties door te filteren op unieke ID's
-          const uniqueIds = new Set();
-          const uniqueApplications = relevantApplications.filter(app => {
-            // Als het ID al is gezien, sla deze over
-            if (uniqueIds.has(app.id)) return false;
-            // Anders voeg het toe aan de set en behoud deze
-            uniqueIds.add(app.id);
-            return true;
-          });
-          
-          if (uniqueApplications.length > 0) {
-            console.log('Gevonden betaalverzoeken voor retailer:', uniqueApplications);
-            setNotifications(uniqueApplications);
-          }
+        if (profileError || !profile) {
+          console.log('[RetailerNotification] No profile found for email:', userEmail);
+          setIsLoading(false);
+          return;
         }
+        
+        // Haal wasstrips applicaties op voor deze retailer
+        const { data: applications, error: appsError } = await supabase
+          .from('wasstrips_applications')
+          .select('*')
+          .eq('profile_id', profile.id)
+          .order('created_at', { ascending: false });
+          
+        if (appsError) {
+          console.error('[RetailerNotification] Error loading applications:', appsError);
+          setIsLoading(false);
+          return;
+        }
+        
+        console.log('[RetailerNotification] Raw applications from database:', applications);
+          
+        // Filter applicaties die een betaling nodig hebben
+        const relevantApplications = applications?.filter((app: DatabaseWasstripsApplication) => {
+          // Toon notificatie als er een betaling actie vereist is
+          const needsDepositPayment = app.deposit_status === 'sent' && (app.status === 'approved' || app.status === 'pending');
+          const needsRemainingPayment = app.remaining_payment_status === 'sent' && app.deposit_status === 'paid';
+          
+          console.log(`[RetailerNotification] Checking app ${app.id}: deposit_status=${app.deposit_status}, remaining_payment_status=${app.remaining_payment_status}, status=${app.status}`);
+          console.log(`[RetailerNotification] needsDepositPayment=${needsDepositPayment}, needsRemainingPayment=${needsRemainingPayment}`);
+          
+          return needsDepositPayment || needsRemainingPayment;
+        }) || [];
+        
+        console.log('[RetailerNotification] Relevant applications (need payment):', relevantApplications);
+        
+        // Converteer naar het verwachte format
+        const convertedNotifications: WasstripsApplication[] = relevantApplications.map((app: DatabaseWasstripsApplication) => ({
+          id: app.id,
+          email: userEmail,
+          businessName: app.business_name || 'Onbekend bedrijf',
+          contactName: app.contact_name || 'Onbekende contactpersoon',
+          status: app.status,
+          paymentOptionSent: true, // Als het in de database staat, is het verstuurd
+          paymentLinkSentAt: app.created_at,
+          selectedPaymentOption: app.deposit_status === 'sent' ? 'direct' : 'invoice',
+          isPaid: app.deposit_status === 'paid' && app.remaining_payment_status === 'paid',
+          paymentStatus: app.deposit_status === 'paid' ? 'paid' : 'pending',
+          paymentMethod: 'stripe',
+          paymentDueDate: app.created_at ? new Date(new Date(app.created_at).getTime() + 14 * 24 * 60 * 60 * 1000).toISOString() : undefined,
+          total: parseFloat(app.total_amount || '300.00'),
+          // Bewaar originele velden voor debugging - converteer naar verwachte types
+          deposit_status: app.deposit_status === 'not_sent' ? 'pending' : app.deposit_status === 'sent' ? 'pending' : app.deposit_status as 'paid' | 'failed',
+          remaining_payment_status: app.remaining_payment_status === 'not_sent' ? 'pending' : app.remaining_payment_status === 'sent' ? 'pending' : app.remaining_payment_status as 'paid' | 'failed',
+          profile_id: app.profile_id,
+          created_at: app.created_at,
+          updated_at: app.updated_at
+        }));
+        
+        console.log('[RetailerNotification] Converted notifications:', convertedNotifications);
+        
+        if (convertedNotifications.length > 0) {
+          setNotifications(convertedNotifications);
+        } else {
+          setNotifications([]);
+          }
+        
       } catch (error) {
-        console.error('Error loading notifications:', error);
+        console.error('[RetailerNotification] Error loading notifications:', error);
+        setNotifications([]);
       } finally {
         setIsLoading(false);
       }
@@ -80,8 +156,8 @@ export default function RetailerNotification({ userEmail }: RetailerNotification
     
     loadNotifications();
     
-    // Set up a timer to check for new notifications every minute
-    const intervalId = setInterval(loadNotifications, 60000);
+    // Set up a timer to check for new notifications every 30 seconds
+    const intervalId = setInterval(loadNotifications, 30000);
     
     // Clean up the interval on component unmount
     return () => clearInterval(intervalId);
@@ -120,6 +196,21 @@ export default function RetailerNotification({ userEmail }: RetailerNotification
     return diffDays;
   };
   
+  // Format relative time
+  const formatRelativeTime = (dateString: string): string => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
+    
+    if (diffInHours < 1) return 'minder dan een uur geleden';
+    if (diffInHours < 24) return `${diffInHours} uur geleden`;
+    
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays < 7) return `${diffInDays} dag${diffInDays > 1 ? 'en' : ''} geleden`;
+    
+    return date.toLocaleDateString('nl-NL');
+  };
+  
   return (
     <div className="mb-6 space-y-4">
       <AnimatePresence>
@@ -130,6 +221,10 @@ export default function RetailerNotification({ userEmail }: RetailerNotification
           
           const isUrgent = daysRemaining !== null && daysRemaining <= 4;
           const isVeryUrgent = daysRemaining !== null && daysRemaining <= 1;
+          
+          // Bepaal het type betaling op basis van status
+          const needsDepositPayment = notification.deposit_status === 'pending';
+          const needsRemainingPayment = notification.remaining_payment_status === 'pending' && notification.deposit_status === 'paid';
           
           return (
             <motion.div
@@ -185,16 +280,10 @@ export default function RetailerNotification({ userEmail }: RetailerNotification
                         }
                       </span>
                       Uw bestelling van Wasstrips kan bij u afgeleverd worden.
-                      {notification.selectedPaymentOption 
-                        ? notification.selectedPaymentOption === 'invoice' && daysRemaining !== null
-                          ? daysRemaining <= 0
-                            ? ` Uw factuur is verlopen!`
-                            : ` U heeft nog ${daysRemaining} ${daysRemaining === 1 ? 'dag' : 'dagen'} om te betalen.`
-                          : ` Betaal nu direct via ${notification.selectedPaymentOption === 'direct' ? 'iDEAL of creditcard' : 'factuur'}.`
-                        : ` Kies uw gewenste betaalmethode: direct betalen of op factuur (binnen 14 dagen).`
-                      }
+                      {needsDepositPayment && ` Betaal de aanbetaling van €30 om uw bestelling te bevestigen.`}
+                      {needsRemainingPayment && ` Betaal het resterende bedrag van €270 om uw bestelling te voltooien.`}
                       <Link
-                        href="/retailer-dashboard/orders"
+                        href="/retailer-dashboard/wasstrips"
                         className={`font-medium underline ml-1 ${
                           isVeryUrgent 
                             ? "text-red-700 hover:text-red-600"
@@ -203,10 +292,7 @@ export default function RetailerNotification({ userEmail }: RetailerNotification
                               : "text-yellow-700 hover:text-yellow-600"
                         }`}
                       >
-                        {notification.selectedPaymentOption
-                          ? "Bekijk en betaal nu"
-                          : "Kies betaalmethode"
-                        }
+                        Bekijk en betaal nu
                       </Link>
                     </p>
                     <p className={`mt-1 text-xs ${
@@ -221,7 +307,7 @@ export default function RetailerNotification({ userEmail }: RetailerNotification
                         : 'recent'
                       }
                       {notification.total 
-                        ? ` • Bedrag: €${(notification.total).toFixed(2).replace('.', ',')}`
+                        ? ` • Bedrag: €${notification.total.toFixed(2).replace('.', ',')}`
                         : ''
                       }
                     </p>

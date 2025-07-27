@@ -40,12 +40,15 @@ export default function LoginPage() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (user && isAdmin) {
-      router.push('/dashboard');
-    } else if (user && isRetailer) {
-      router.push('/retailer-dashboard');
+    // Only redirect if auth is fully loaded and user is authenticated
+    if (!isLoading && user) {
+      if (isAdmin) {
+        router.push('/dashboard');
+      } else if (isRetailer) {
+        router.push('/retailer-dashboard');
+      }
     }
-  }, [user, isAdmin, isRetailer, router]);
+  }, [user, isAdmin, isRetailer, isLoading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

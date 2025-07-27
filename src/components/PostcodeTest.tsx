@@ -24,7 +24,8 @@ export default function PostcodeTest() {
       setResult(adres);
       
       if (adres.exceptionId) {
-        setError(adres.message || 'Er is een fout opgetreden');
+        console.error('[PostcodeTest] API Error Details:', adres);
+        setError(`API Error: ${adres.message || 'Er is een fout opgetreden'} (${adres.exceptionId})`);
       }
     } catch (err) {
       console.error('Error during API test:', err);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail, sendAdminNotificationEmail } from '@/lib/mail-service';
+import { SocialSharingService } from '@/lib/social-sharing-service';
 
 // Gebruik admin client voor server-side operaties
 const supabaseAdmin = createClient(
@@ -20,13 +21,40 @@ export async function POST(req: NextRequest) {
       city, 
       postalCode, 
       country,
+      kvkNumber,
+      vatNumber,
+      website,
       wasstripsOptin,
       wasstripsDepositAgreed,
       message,
+      referralCode, // Add referral tracking
+      invitationToken, // Add invitation token support
       // Andere velden worden genegeerd voor nu
     } = body;
 
-    // 1. Valideer de input
+    // 1. Valideer uitnodigingstoken indien aanwezig
+    let invitationData = null;
+    if (invitationToken) {
+      const { data, error } = await supabaseAdmin
+        .rpc('validate_invitation_token', { token_input: invitationToken });
+
+      if (error || !data || data.length === 0) {
+        return NextResponse.json({ 
+          error: 'Ongeldige of verlopen uitnodigingstoken' 
+        }, { status: 400 });
+      }
+
+      invitationData = data[0];
+
+      // Controleer of e-mailadres overeenkomt met uitnodiging
+      if (invitationData.email !== email) {
+        return NextResponse.json({ 
+          error: 'E-mailadres komt niet overeen met uitnodiging' 
+        }, { status: 400 });
+      }
+    }
+
+    // 2. Valideer de input
     if (!businessName || !contactName || !email || !phone) {
       return NextResponse.json({ error: 'Verplichte velden ontbreken' }, { status: 400 });
     }
@@ -62,9 +90,18 @@ export async function POST(req: NextRequest) {
         city,
         postal_code: postalCode,
         country,
+        kvk_number: kvkNumber || null,
+        vat_number: vatNumber || null,
+        website: website || null,
         role: 'retailer', // Standaardrol voor nieuwe registraties
-        status: 'pending',  // Start als 'pending' voor admin goedkeuring
-        metadata: message ? { message } : {} // <-- Sla extra info op in metadata
+        status: invitationData ? 'approved' : 'pending',  // Uitgenodigde retailers worden direct goedgekeurd
+        invitation_token: invitationToken || null,
+        metadata: message ? { 
+          message,
+          registration_type: invitationData ? 'invited' : 'self_registered'
+        } : {
+          registration_type: invitationData ? 'invited' : 'self_registered'
+        }
       });
 
     if (profileError) {
@@ -74,7 +111,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: profileError.message }, { status: 500 });
     }
 
-    // 4. Maak een wasstrips aanvraag aan indien aangevinkt
+    // 4. Track referral if provided
+    if (referralCode && email) {
+      try {
+        const sharingService = SocialSharingService.getInstance();
+        await sharingService.updateReferralStatus(email, userId, 'registered');
+      } catch (error) {
+        console.error('Error tracking referral:', error);
+        // Don't fail registration if referral tracking fails
+      }
+    }
+
+    // 5. Maak een wasstrips aanvraag aan indien aangevinkt
     let wasstripsApplicationResult = null;
     if (wasstripsOptin) {
       const { data: wasstripsData, error: wasstripsError } = await supabaseAdmin
@@ -178,10 +226,33 @@ export async function POST(req: NextRequest) {
     }
     // --- EINDE NIEUW ---
 
+    // 6. Markeer uitnodigingstoken als gebruikt indien van toepassing
+    if (invitationData && invitationToken) {
+      try {
+        const { error: markUsedError } = await supabaseAdmin
+          .rpc('mark_invitation_used', { 
+            token_input: invitationToken, 
+            user_id: userId 
+          });
+
+        if (markUsedError) {
+          console.error('Error marking invitation as used:', markUsedError);
+          // Niet fataal, registratie is al succesvol
+        }
+      } catch (error) {
+        console.error('Error marking invitation as used:', error);
+        // Niet fataal
+      }
+    }
+
     return NextResponse.json({ 
       success: true, 
-      message: 'Registratie succesvol ontvangen.',
-      wasstripsApplication: wasstripsApplicationResult
+      message: invitationData 
+        ? 'Registratie succesvol voltooid! U heeft direct toegang tot het retailer dashboard.'
+        : 'Registratie succesvol ontvangen.',
+      wasstripsApplication: wasstripsApplicationResult,
+      isInvited: !!invitationData,
+      status: invitationData ? 'approved' : 'pending'
     });
 
   } catch (error) {

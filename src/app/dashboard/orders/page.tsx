@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
@@ -8,12 +8,13 @@ import Footer from '@/components/Footer';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import { useAuth } from '@/contexts/AuthContext';
 import { getOrders, updateOrder, deleteOrder, Order, getWasstripsOrders, WasstripsApplication, updateWasstripsApplication, updateWasstripsApplicationWithOrderDetails } from '@/lib/supabase';
+import OrderDetailsModal from '@/components/OrderDetailsModal';
 
 // Status definities met labels en kleuren voor een consistent uiterlijk
 const FULFILLMENT_STATUSES = {
-  pending: { label: 'Te verzenden', color: 'yellow' },
-  processing: { label: 'Wacht op betaalmethode', color: 'blue' },
-  shipped: { label: 'Verzonden', color: 'green' },
+  pending: { label: 'Wacht op betaling', color: 'orange' },
+  processing: { label: 'Betaald - Gereed voor verzending', color: 'green' },
+  shipped: { label: 'Verzonden', color: 'blue' },
   delivered: { label: 'Afgeleverd', color: 'indigo' },
   cancelled: { label: 'Geannuleerd', color: 'red' },
   canceled: { label: 'Geannuleerd', color: 'red' }
@@ -63,9 +64,279 @@ export default function OrdersPage() {
   const { user, isLoading: authLoading, isAdmin } = useAuth();
   const router = useRouter();
   
+  // State declarations first
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  
+  // Enhanced filtering and search state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('all');
+  const [orderTypeFilter, setOrderTypeFilter] = useState<string>('all');
+  const [dateRange, setDateRange] = useState<string>('all');
+  const [sortColumn, setSortColumn] = useState<string>('created_at');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
+  
+  // Bulk actions state
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<string>('');
+  const [showBulkActions, setShowBulkActions] = useState(false);
+  
+  // Order details modal state
+  const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
+  const [showOrderDetails, setShowOrderDetails] = useState(false);
+
+  // Dashboard statistics
+  const orderStats = useMemo(() => {
+    console.log('[STATS] Calculating order statistics for', orders.length, 'orders');
+    
+    // Debug total amounts for each order
+    orders.forEach((order, index) => {
+      console.log(`[STATS] Order ${index + 1}: ${order.order_number} = €${order.total_amount} (type: ${typeof order.total_amount}) (raw: ${JSON.stringify(order.total_amount)})`);
+    });
+    
+    const totalValue = orders.reduce((sum, o) => {
+      let amount: number;
+      if (typeof o.total_amount === 'string') {
+        amount = parseFloat(o.total_amount);
+        console.log(`[STATS] String conversion: "${o.total_amount}" -> ${amount}`);
+      } else if (typeof o.total_amount === 'number') {
+        amount = o.total_amount;
+        console.log(`[STATS] Number value: ${amount}`);
+      } else {
+        amount = 0;
+        console.log(`[STATS] Unknown type for ${o.order_number}: ${typeof o.total_amount}, setting to 0`);
+      }
+      
+      if (isNaN(amount)) {
+        console.log(`[STATS] WARNING: NaN detected for ${o.order_number}, using 0`);
+        amount = 0;
+      }
+      
+      console.log(`[STATS] Adding ${amount} to sum ${sum}, result: ${sum + amount}`);
+      return sum + amount;
+    }, 0);
+    
+    console.log('[STATS] Final total value:', totalValue);
+    
+    const stats = {
+      total: orders.length,
+      pending: orders.filter(o => o.payment_status === 'pending').length,
+      paid: orders.filter(o => o.payment_status === 'paid').length,
+      processing: orders.filter(o => o.fulfillment_status === 'processing').length,
+      shipped: orders.filter(o => o.fulfillment_status === 'shipped').length,
+      totalValue: totalValue,
+      wasstrips: orders.filter(o => o.metadata?.order_type === 'wasstrips').length,
+      catalog: orders.filter(o => !o.metadata?.order_type).length
+    };
+    
+    console.log('[STATS] Final stats:', stats);
+    return stats;
+  }, [orders]);
+
+  // Advanced filtering and search logic
+  const filteredAndSortedOrders = useMemo(() => {
+    let filtered = [...orders];
+
+    // Search filter
+    if (searchTerm.trim()) {
+      const search = searchTerm.toLowerCase().trim();
+      filtered = filtered.filter(order => 
+        order.order_number?.toLowerCase().includes(search) ||
+        order.profiles?.company_name?.toLowerCase().includes(search) ||
+        order.profiles?.email?.toLowerCase().includes(search) ||
+        order.tracking_code?.toLowerCase().includes(search) ||
+        order.id.toLowerCase().includes(search)
+      );
+    }
+
+    // Status filters
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(order => order.fulfillment_status === statusFilter);
+    }
+    if (paymentStatusFilter !== 'all') {
+      filtered = filtered.filter(order => order.payment_status === paymentStatusFilter);
+    }
+    if (orderTypeFilter !== 'all') {
+      if (orderTypeFilter === 'wasstrips') {
+        filtered = filtered.filter(order => order.metadata?.order_type === 'wasstrips');
+      } else if (orderTypeFilter === 'catalog') {
+        filtered = filtered.filter(order => !order.metadata?.order_type);
+      }
+    }
+
+    // Date range filter
+    if (dateRange !== 'all') {
+      const now = new Date();
+      const filterDate = new Date();
+      
+      switch (dateRange) {
+        case 'today':
+          filterDate.setHours(0, 0, 0, 0);
+          break;
+        case 'week':
+          filterDate.setDate(now.getDate() - 7);
+          break;
+        case 'month':
+          filterDate.setMonth(now.getMonth() - 1);
+          break;
+        case 'quarter':
+          filterDate.setMonth(now.getMonth() - 3);
+          break;
+      }
+      
+      if (dateRange !== 'all') {
+        filtered = filtered.filter(order => new Date(order.created_at) >= filterDate);
+      }
+    }
+
+    // Sorting
+    filtered.sort((a, b) => {
+      let aValue: any = a[sortColumn as keyof Order];
+      let bValue: any = b[sortColumn as keyof Order];
+
+      // Handle nested properties
+      if (sortColumn === 'retailer') {
+        aValue = a.profiles?.company_name || '';
+        bValue = b.profiles?.company_name || '';
+      }
+
+      // Handle different data types
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        aValue = aValue.toLowerCase();
+        bValue = bValue.toLowerCase();
+      }
+      
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  }, [orders, searchTerm, statusFilter, paymentStatusFilter, orderTypeFilter, dateRange, sortColumn, sortDirection]);
+
+  // Pagination logic
+  const paginatedOrders = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredAndSortedOrders.slice(startIndex, endIndex);
+  }, [filteredAndSortedOrders, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredAndSortedOrders.length / itemsPerPage);
+
+  // Helper functions
+  const handleSort = useCallback((column: string) => {
+    if (sortColumn === column) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+    setCurrentPage(1); // Reset to first page when sorting
+  }, [sortColumn]);
+
+  const handleSelectOrder = useCallback((orderId: string) => {
+    setSelectedOrders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId);
+      } else {
+        newSet.add(orderId);
+      }
+      setShowBulkActions(newSet.size > 0);
+      return newSet;
+    });
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    if (selectedOrders.size === paginatedOrders.length) {
+      setSelectedOrders(new Set());
+      setShowBulkActions(false);
+    } else {
+      const allIds = new Set(paginatedOrders.map(order => order.id));
+      setSelectedOrders(allIds);
+      setShowBulkActions(true);
+    }
+  }, [selectedOrders.size, paginatedOrders]);
+
+  const handleBulkAction = useCallback(async () => {
+    if (!bulkAction || selectedOrders.size === 0) return;
+    
+    try {
+      setIsLoading(true);
+      
+      switch (bulkAction) {
+        case 'mark_shipped':
+          // Implement bulk mark as shipped
+          for (const orderId of selectedOrders) {
+            await updateOrder(orderId, { fulfillment_status: 'shipped' });
+          }
+          break;
+        case 'mark_delivered':
+          // Implement bulk mark as delivered
+          for (const orderId of selectedOrders) {
+            await updateOrder(orderId, { fulfillment_status: 'delivered' });
+          }
+          break;
+        case 'export':
+          handleExportOrders();
+          break;
+      }
+      
+      await loadOrders();
+      setSelectedOrders(new Set());
+      setShowBulkActions(false);
+      setBulkAction('');
+    } catch (error) {
+      console.error('Bulk action error:', error);
+      alert('Er is een fout opgetreden bij de bulk actie.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [bulkAction, selectedOrders]);
+
+  const handleExportOrders = useCallback(() => {
+    const ordersToExport = selectedOrders.size > 0 
+      ? filteredAndSortedOrders.filter(order => selectedOrders.has(order.id))
+      : filteredAndSortedOrders;
+
+    const csvContent = [
+      ['Bestelnummer', 'Retailer', 'Email', 'Datum', 'Bedrag', 'Betaling', 'Status', 'Tracking'].join(','),
+      ...ordersToExport.map(order => [
+        order.order_number || order.id,
+        order.profiles?.company_name || '',
+        order.profiles?.email || '',
+        new Date(order.created_at).toLocaleDateString('nl-NL'),
+        order.total_amount.toFixed(2),
+        order.payment_status || '',
+        order.fulfillment_status || '',
+        order.tracking_code || ''
+      ].map(field => `"${field}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `orders_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [filteredAndSortedOrders, selectedOrders]);
+
+  const resetFilters = useCallback(() => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setPaymentStatusFilter('all');
+    setOrderTypeFilter('all');
+    setDateRange('all');
+    setCurrentPage(1);
+  }, []);
   
   // State voor de order die bewerkt wordt
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
@@ -130,14 +401,21 @@ export default function OrdersPage() {
               retailer_id: app.profile_id,
               profile_id: app.profile_id,
               status: app.status as Order['status'],
-              payment_status: app.deposit_status === 'paid' ? 'paid' : 'pending' as Order['payment_status'],
+              payment_status: (
+                // Als beide betalingen gedaan zijn EN betaalmethode is geselecteerd, dan volledig betaald
+                app.deposit_status === 'paid' && app.remaining_payment_status === 'paid' && app.payment_method_selected ? 'paid' :
+                // Als alleen aanbetaling gedaan is, dan nog in afwachting
+                app.deposit_status === 'paid' && app.remaining_payment_status !== 'paid' ? 'pending' :
+                // Anders ook in afwachting
+                'pending'
+              ) as Order['payment_status'],
               payment_method: 'credit_card' as Order['payment_method'],
               stripe_session_id: undefined,
               stripe_payment_intent_id: undefined,
-              subtotal: Number(app.total_amount) || 0,
+              subtotal: parseFloat(app.total_amount as string) || 0,
               shipping_cost: 0,
               tax_amount: 0,
-              total_amount: Number(app.total_amount) || 0,
+              total_amount: parseFloat(app.total_amount as string) || 0,
               shipping_address: undefined,
               shipping_city: undefined,
               shipping_postal_code: undefined,
@@ -160,11 +438,17 @@ export default function OrdersPage() {
               created_at: app.created_at,
               updated_at: app.updated_at,
               fulfillment_status: (
+                // Als er een tracking code is, dan is het verzonden
+                app.tracking_code ? 'shipped' :
+                // Als status expliciet shipped is
+                app.status === 'shipped' ? 'shipped' :
+                // Als beide betalingen gedaan zijn EN betaalmethode is geselecteerd, dan processing (klaar voor verzending)
+                app.deposit_status === 'paid' && app.remaining_payment_status === 'paid' && app.payment_method_selected ? 'processing' :
+                // Andere statussen
                 app.status === 'pending' ? 'pending' :
                 app.status === 'approved' && !app.payment_method_selected ? 'processing' :
                 app.status === 'order_ready' && !app.payment_method_selected ? 'processing' :
-                app.status === 'payment_selected' || app.payment_method_selected ? 'pending' :
-                app.status === 'shipped' ? 'shipped' :
+                app.status === 'payment_selected' && app.payment_method_selected ? 'processing' :
                 'processing'
               ) as Order['fulfillment_status'],
               shipping_provider: 'postnl' as 'postnl' | 'dhl',
@@ -234,6 +518,155 @@ export default function OrdersPage() {
   // Sluit het verwijdermodal
   const handleCancelDelete = () => {
     setDeletingOrderId(null);
+  };
+
+  // Open order details modal
+  const handleViewOrderDetails = (order: Order) => {
+    console.log('[OrderManagement] Opening order details for order:', order.id);
+    setViewingOrder(order);
+    setShowOrderDetails(true);
+  };
+
+  // Sluit order details modal
+  const handleCloseOrderDetails = () => {
+    console.log('[OrderManagement] Closing order details modal');
+    setViewingOrder(null);
+    setShowOrderDetails(false);
+  };
+
+  // Handle Pay Now from order details modal
+  const handlePayNowFromDetails = async (order: Order) => {
+    try {
+      console.log('[OrderManagement] Pay Now clicked for order:', order.id, 'amount:', order.total_amount);
+      
+      // Check voor Wasstrips orders
+      const currentStep = order.metadata?.current_step;
+      const wasstripsApplicationId = order.metadata?.wasstrips_application_id;
+      
+      if (currentStep && wasstripsApplicationId) {
+        console.log('[OrderManagement] Handling Wasstrips payment - Step:', currentStep);
+        
+        // Voor Wasstrips stap 3 (delivery): redirecteer naar betaalwijze keuze
+        if (currentStep === 'delivery') {
+          console.log('[OrderManagement] Redirecting to payment options for delivery step');
+          window.location.href = `/retailer-dashboard/payment-options/${wasstripsApplicationId}`;
+          return;
+        }
+        
+        // Voor tussentoestand (wachten op admin): geen actie mogelijk
+        if (currentStep === 'waiting_for_admin') {
+          alert('Deze bestelling wordt momenteel voorbereid door de administratie.');
+          return;
+        }
+        
+        // Voor Wasstrips stappen 1 & 2: gebruik wasstrips payment endpoint
+        if (currentStep === 'deposit' || currentStep === 'remaining') {
+          const paymentType = currentStep === 'deposit' ? 'deposit' : 'remaining';
+          const paymentLinkId = currentStep === 'deposit' 
+            ? order.metadata?.deposit_payment_link 
+            : order.metadata?.remaining_payment_link;
+          
+          if (!paymentLinkId) {
+            console.error('[OrderManagement] No payment link found for step:', currentStep);
+            alert('Fout: Betaallink niet gevonden. Contacteer de klantenservice.');
+            return;
+          }
+          
+          console.log('[OrderManagement] Redirecting to wasstrips payment:', {
+            paymentType,
+            paymentLinkId,
+            amount: order.total_amount
+          });
+          
+          // Redirecteer naar de wasstrips betaalpagina
+          if (paymentType === 'deposit') {
+            window.location.href = `/payment/deposit/${paymentLinkId}`;
+          } else {
+            window.location.href = `/payment/remaining/${paymentLinkId}`;
+          }
+          return;
+        }
+      }
+      
+      // Voor gewone orders: gebruik normale checkout
+      console.log('[OrderManagement] Handling standard order payment');
+      
+      // Valideer order data
+      if (!order.total_amount || order.total_amount <= 0) {
+        console.error('[OrderManagement] Invalid order amount:', order.total_amount);
+        alert('Fout: Ongeldig orderbedrag. Kan betaling niet starten.');
+        return;
+      }
+      
+      // Bereid order data voor voor Stripe
+      const stripeOrder = {
+        id: order.id,
+        totalAmount: order.total_amount,
+        items: order.items?.map(item => ({
+          id: item.id || 'item',
+          name: item.product_name || 'Product',
+          quantity: item.quantity || 1,
+          price: item.price || 0
+        })) || [],
+        date: order.created_at,
+        status: order.fulfillment_status,
+        paymentStatus: 'pending',
+        paymentMethod: 'stripe'
+      };
+      
+      console.log('[OrderManagement] Prepared stripe order:', stripeOrder);
+      
+      // Sla de order op in localStorage voor gebruik door Stripe
+      localStorage.setItem('stripeOrder', JSON.stringify(stripeOrder));
+      
+      // Sluit de modal voordat we redirecten
+      handleCloseOrderDetails();
+      
+      // Bereid API request voor
+      const requestBody = {
+        items: stripeOrder.items,
+        orderId: order.id,
+        amount: order.total_amount,
+        isTestMode: true // Default to test mode for admin
+      };
+      
+      console.log('[OrderManagement] API request body:', requestBody);
+      
+      // Start Stripe checkout via API
+      const response = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+      
+      console.log('[OrderManagement] API response status:', response.status);
+      
+      // Check if response is ok
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[OrderManagement] API response not ok:', response.status, errorText);
+        alert(`API fout: ${response.status} - ${errorText}`);
+        return;
+      }
+      
+      const data = await response.json();
+      console.log('[OrderManagement] API response data:', data);
+      
+      if (data.success && data.url) {
+        console.log('[OrderManagement] Redirecting to Stripe checkout:', data.url);
+        // Redirect naar Stripe checkout
+        window.location.href = data.url;
+      } else {
+        console.error('[OrderManagement] Stripe checkout failed:', data);
+        const errorMessage = data.error || 'Onbekende fout bij het voorbereiden van de betaling';
+        alert(`Er is een fout opgetreden: ${errorMessage}`);
+      }
+    } catch (error) {
+      console.error('[OrderManagement] Payment initiation error:', error);
+      alert(`Er is een fout opgetreden bij het voorbereiden van de betaling: ${error instanceof Error ? error.message : 'Onbekende fout'}`);
+    }
   };
 
   // Verwijder de bestelling
@@ -432,42 +865,7 @@ export default function OrdersPage() {
     }
   };
   
-  // Force reload orders knop
-  const ForceReloadOrdersButton = () => {
-    const handleForceReload = () => {
-      try {
-        console.log('Forceer het laden van orders vanuit localStorage');
-        const mockOrdersJSON = localStorage.getItem('mockOrders');
-        
-        if (mockOrdersJSON) {
-          const orders = JSON.parse(mockOrdersJSON);
-          console.log('Direct vanuit localStorage geladen orders:', {
-            aantal: orders.length,
-            ids: orders.map((o: any) => o.id).join(', ')
-          });
-          
-          // Converteer naar het juiste format en zet in state
-          setOrders(orders);
-          
-          alert(`${orders.length} bestellingen direct uit localStorage geladen!`);
-        } else {
-          alert('Geen bestellingen gevonden in localStorage!');
-        }
-      } catch (error) {
-        console.error('Fout bij direct laden van orders:', error);
-        alert('Er is een fout opgetreden bij het laden van bestellingen.');
-      }
-    };
-    
-    return (
-      <button
-        onClick={handleForceReload}
-        className="ml-2 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-      >
-        Laad direct uit localStorage
-      </button>
-    );
-  };
+
   
   // Render loading state
   if (authLoading) {
@@ -534,36 +932,255 @@ export default function OrdersPage() {
                 >
                   Terug naar dashboard
                 </Link>
-                <ForceReloadOrdersButton />
               </div>
             </div>
             
-            {/* Statussen Filter */}
-            <div className="mt-6 mb-4">
-              <div className="sm:flex sm:items-center">
-                <div className="sm:flex-auto">
-                  <h3 className="text-lg font-medium text-gray-900">Bestellingen</h3>
-                  <p className="mt-2 text-sm text-gray-500">
-                    Een overzicht van alle bestellingen in het systeem.
-                  </p>
+            {/* Dashboard Statistics */}
+            <div className="mt-6 mb-6">
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0">
+                        <div className="w-8 h-8 bg-blue-500 rounded-md flex items-center justify-center">
+                          <span className="text-white text-sm font-bold">📊</span>
+                        </div>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">Totaal Orders</dt>
+                          <dd className="text-lg font-medium text-gray-900">{orderStats.total}</dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
-                  <select
-                    id="status-filter"
-                    name="status-filter"
-                    className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm rounded-md"
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                  >
-                    <option value="all">Alle statussen</option>
-                    <option value="pending">Te verzenden</option>
-                    <option value="processing">In behandeling</option>
-                    <option value="shipped">Verzonden</option>
-                    <option value="delivered">Afgeleverd</option>
-                    <option value="cancelled">Geannuleerd</option>
-                  </select>
+
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0">
+                        <div className="w-8 h-8 bg-green-500 rounded-md flex items-center justify-center">
+                          <span className="text-white text-sm font-bold">💰</span>
+                        </div>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">Betaald</dt>
+                          <dd className="text-lg font-medium text-gray-900">{orderStats.paid}</dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0">
+                        <div className="w-8 h-8 bg-yellow-500 rounded-md flex items-center justify-center">
+                          <span className="text-white text-sm font-bold">📦</span>
+                        </div>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">Verzonden</dt>
+                          <dd className="text-lg font-medium text-gray-900">{orderStats.shipped}</dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0">
+                        <div className="w-8 h-8 bg-purple-500 rounded-md flex items-center justify-center">
+                          <span className="text-white text-sm font-bold">€</span>
+                        </div>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">Totale Waarde</dt>
+                          <dd className="text-lg font-medium text-gray-900">€{orderStats.totalValue.toFixed(2)}</dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
+            </div>
+
+            {/* Advanced Filters & Search */}
+            <div className="bg-white shadow rounded-lg mb-6">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900">Order Management</h3>
+                    <p className="mt-1 text-sm text-gray-500">
+                      {filteredAndSortedOrders.length} van {orders.length} bestellingen
+                    </p>
+                  </div>
+                  <div className="mt-3 sm:mt-0 flex space-x-2">
+                    <button
+                      onClick={handleExportOrders}
+                      className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      📊 Export CSV
+                    </button>
+                    <button
+                      onClick={resetFilters}
+                      className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      🔄 Reset Filters
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-6 py-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
+                  {/* Search */}
+                  <div className="lg:col-span-2">
+                    <label htmlFor="search" className="block text-sm font-medium text-gray-700">
+                      Zoeken
+                    </label>
+                    <div className="mt-1 relative rounded-md shadow-sm">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <span className="text-gray-400 sm:text-sm">🔍</span>
+                      </div>
+                      <input
+                        type="text"
+                        id="search"
+                        className="focus:ring-blue-500 focus:border-blue-500 block w-full pl-8 pr-3 py-2 text-sm border-gray-300 rounded-md text-gray-900"
+                        placeholder="Zoek op bestelnummer, retailer, email..."
+                        value={searchTerm}
+                        onChange={(e) => {
+                          setSearchTerm(e.target.value);
+                          setCurrentPage(1);
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Status Filter */}
+                  <div>
+                    <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700">
+                      Fulfillment Status
+                    </label>
+                    <select
+                      id="status-filter"
+                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md text-gray-900"
+                      value={statusFilter}
+                      onChange={(e) => {
+                        setStatusFilter(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <option value="all">Alle statussen</option>
+                      <option value="pending">Te verzenden</option>
+                      <option value="processing">In behandeling</option>
+                      <option value="shipped">Verzonden</option>
+                      <option value="delivered">Afgeleverd</option>
+                      <option value="cancelled">Geannuleerd</option>
+                    </select>
+                  </div>
+
+                  {/* Payment Status Filter */}
+                  <div>
+                    <label htmlFor="payment-filter" className="block text-sm font-medium text-gray-700">
+                      Betaling
+                    </label>
+                    <select
+                      id="payment-filter"
+                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md text-gray-900"
+                      value={paymentStatusFilter}
+                      onChange={(e) => {
+                        setPaymentStatusFilter(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <option value="all">Alle betalingen</option>
+                      <option value="pending">In afwachting</option>
+                      <option value="paid">Betaald</option>
+                      <option value="failed">Mislukt</option>
+                    </select>
+                  </div>
+
+                  {/* Order Type Filter */}
+                  <div>
+                    <label htmlFor="type-filter" className="block text-sm font-medium text-gray-700">
+                      Type
+                    </label>
+                    <select
+                      id="type-filter"
+                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md text-gray-900"
+                      value={orderTypeFilter}
+                      onChange={(e) => {
+                        setOrderTypeFilter(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <option value="all">Alle types</option>
+                      <option value="wasstrips">Wasstrips ({orderStats.wasstrips})</option>
+                      <option value="catalog">Catalog ({orderStats.catalog})</option>
+                    </select>
+                  </div>
+
+                  {/* Date Range Filter */}
+                  <div>
+                    <label htmlFor="date-filter" className="block text-sm font-medium text-gray-700">
+                      Periode
+                    </label>
+                    <select
+                      id="date-filter"
+                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md text-gray-900"
+                      value={dateRange}
+                      onChange={(e) => {
+                        setDateRange(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <option value="all">Alle periodes</option>
+                      <option value="today">Vandaag</option>
+                      <option value="week">Afgelopen week</option>
+                      <option value="month">Afgelopen maand</option>
+                      <option value="quarter">Afgelopen kwartaal</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bulk Actions */}
+              {showBulkActions && (
+                <div className="px-6 py-3 bg-blue-50 border-t border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-blue-900">
+                      {selectedOrders.size} order(s) geselecteerd
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <select
+                        className="text-sm border-gray-300 rounded-md text-gray-900"
+                        value={bulkAction}
+                        onChange={(e) => setBulkAction(e.target.value)}
+                      >
+                        <option value="">Kies actie...</option>
+                        <option value="mark_shipped">Markeer als verzonden</option>
+                        <option value="mark_delivered">Markeer als geleverd</option>
+                        <option value="export">Export geselecteerde</option>
+                      </select>
+                      <button
+                        onClick={handleBulkAction}
+                        disabled={!bulkAction}
+                        className="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Uitvoeren
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             
             {/* Bestellingen Tabel */}
@@ -575,22 +1192,87 @@ export default function OrdersPage() {
                       <thead className="bg-gray-50">
                         <tr>
                           <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">
-                            Bestelnummer
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                              checked={selectedOrders.size === paginatedOrders.length && paginatedOrders.length > 0}
+                              onChange={handleSelectAll}
+                            />
+                          </th>
+                          <th 
+                            scope="col" 
+                            className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 cursor-pointer hover:bg-gray-100"
+                            onClick={() => handleSort('order_number')}
+                          >
+                            <div className="flex items-center">
+                              Bestelnummer
+                              {sortColumn === 'order_number' && (
+                                <span className="ml-1 text-blue-600">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            scope="col" 
+                            className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 cursor-pointer hover:bg-gray-100"
+                            onClick={() => handleSort('retailer')}
+                          >
+                            <div className="flex items-center">
+                              Retailer
+                              {sortColumn === 'retailer' && (
+                                <span className="ml-1 text-blue-600">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            scope="col" 
+                            className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 cursor-pointer hover:bg-gray-100"
+                            onClick={() => handleSort('created_at')}
+                          >
+                            <div className="flex items-center">
+                              Datum
+                              {sortColumn === 'created_at' && (
+                                <span className="ml-1 text-blue-600">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            scope="col" 
+                            className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 cursor-pointer hover:bg-gray-100"
+                            onClick={() => handleSort('total_amount')}
+                          >
+                            <div className="flex items-center">
+                              Bedrag
+                              {sortColumn === 'total_amount' && (
+                                <span className="ml-1 text-blue-600">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            scope="col" 
+                            className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 cursor-pointer hover:bg-gray-100"
+                            onClick={() => handleSort('payment_status')}
+                          >
+                            <div className="flex items-center">
+                              Betaling
+                              {sortColumn === 'payment_status' && (
+                                <span className="ml-1 text-blue-600">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            scope="col" 
+                            className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 cursor-pointer hover:bg-gray-100"
+                            onClick={() => handleSort('fulfillment_status')}
+                          >
+                            <div className="flex items-center">
+                              Status
+                              {sortColumn === 'fulfillment_status' && (
+                                <span className="ml-1 text-blue-600">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                              )}
+                            </div>
                           </th>
                           <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                            Retailer
-                          </th>
-                          <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                            Datum
-                          </th>
-                          <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                            Bedrag
-                          </th>
-                          <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                            Betaling
-                          </th>
-                          <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                            Status
+                            Tracking
                           </th>
                           <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6">
                             <span className="sr-only">Acties</span>
@@ -600,7 +1282,7 @@ export default function OrdersPage() {
                       <tbody className="divide-y divide-gray-200 bg-white">
                         {isLoading ? (
                           <tr>
-                            <td colSpan={7} className="py-10 text-center text-gray-500">
+                            <td colSpan={9} className="py-10 text-center text-gray-500">
                               <svg className="mx-auto animate-spin h-8 w-8 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -610,7 +1292,7 @@ export default function OrdersPage() {
                           </tr>
                         ) : orders.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="py-10 text-center text-gray-500">
+                            <td colSpan={9} className="py-10 text-center text-gray-500">
                               <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                               </svg>
@@ -626,9 +1308,17 @@ export default function OrdersPage() {
                             </td>
                           </tr>
                         ) : (
-                          orders.map((order) => (
-                            <tr key={order.id} className="hover:bg-gray-50">
+                          paginatedOrders.map((order) => (
+                            <tr key={order.id} className={`hover:bg-gray-50 ${selectedOrders.has(order.id) ? 'bg-blue-50' : ''}`}>
                               <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                  checked={selectedOrders.has(order.id)}
+                                  onChange={() => handleSelectOrder(order.id)}
+                                />
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-4 text-sm font-medium text-gray-900">
                                 <div className="flex flex-col">
                                   <span>{order.order_number || order.id}</span>
                                   {order.metadata?.order_type === 'wasstrips' && (
@@ -667,15 +1357,26 @@ export default function OrdersPage() {
                                 </div>
                               </td>
                               <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                                <div className="flex flex-col space-y-1">
-                                  <StatusBadge status={order.fulfillment_status || 'pending'} type="fulfillment" />
-                                  {order.tracking_code && (
-                                    <span className="text-xs text-green-600 mt-1">{order.tracking_code}</span>
-                                  )}
-                                </div>
+                                <StatusBadge status={order.fulfillment_status || 'pending'} type="fulfillment" />
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                                {order.tracking_code ? (
+                                  <span className="text-xs text-green-600 font-mono">{order.tracking_code}</span>
+                                ) : (
+                                  <span className="text-xs text-gray-400">-</span>
+                                )}
                               </td>
                               <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                                 <div className="flex justify-end space-x-2">
+                                  {/* View Details button - always available */}
+                                  <button
+                                    onClick={() => handleViewOrderDetails(order)}
+                                    className="text-blue-600 hover:text-blue-900 font-medium"
+                                    title="Bekijk volledige orderdetails"
+                                  >
+                                    View Details<span className="sr-only">, order {order.id}</span>
+                                  </button>
+                                  
                                   {/* Wasstrips specific buttons */}
                                   {order.metadata?.order_type === 'wasstrips' ? (
                                     <>
@@ -701,7 +1402,9 @@ export default function OrdersPage() {
                                       )}
                                       
                                       {/* Show shipping button only if payment method is selected AND status is ready to ship */}
-                                      {order.metadata.payment_method_selected && order.fulfillment_status === 'pending' && (
+                                      {order.metadata.payment_method_selected && 
+                                       order.fulfillment_status !== 'shipped' && 
+                                       order.fulfillment_status !== 'delivered' && (
                                         <button
                                           onClick={() => handleEditOrder(order)}
                                           className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
@@ -730,12 +1433,26 @@ export default function OrdersPage() {
                                   ) : (
                                     /* Regular order buttons */
                                     <>
-                                      <button
-                                        onClick={() => handleEditOrder(order)}
-                                        className="text-green-600 hover:text-green-900"
-                                      >
-                                        Bewerken<span className="sr-only">, order {order.id}</span>
-                                      </button>
+                                      {/* Show direct shipping button for paid orders */}
+                                      {order.fulfillment_status === 'processing' && order.payment_status === 'paid' && (
+                                        <button
+                                          onClick={() => handleEditOrder(order)}
+                                          className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                                        >
+                                          📦 Verzenden
+                                        </button>
+                                      )}
+                                      
+                                      {/* Standard edit button for other states */}
+                                      {!(order.fulfillment_status === 'processing' && order.payment_status === 'paid') && (
+                                        <button
+                                          onClick={() => handleEditOrder(order)}
+                                          className="text-green-600 hover:text-green-900"
+                                        >
+                                          Bewerken<span className="sr-only">, order {order.id}</span>
+                                        </button>
+                                      )}
+                                      
                                       <button
                                         onClick={() => handleDeleteOrder(order.id)}
                                         className="text-red-600 hover:text-red-900"
@@ -755,6 +1472,108 @@ export default function OrdersPage() {
                 </div>
               </div>
             </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
+                <div className="flex-1 flex justify-between sm:hidden">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Vorige
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Volgende
+                  </button>
+                </div>
+                <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm text-gray-700">
+                      Toont{' '}
+                      <span className="font-medium">{((currentPage - 1) * itemsPerPage) + 1}</span>
+                      {' '}tot{' '}
+                      <span className="font-medium">
+                        {Math.min(currentPage * itemsPerPage, filteredAndSortedOrders.length)}
+                      </span>
+                      {' '}van{' '}
+                      <span className="font-medium">{filteredAndSortedOrders.length}</span>
+                      {' '}resultaten
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2">
+                      <label className="text-sm text-gray-700">Per pagina:</label>
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => {
+                          setItemsPerPage(Number(e.target.value));
+                          setCurrentPage(1);
+                        }}
+                        className="border-gray-300 rounded-md text-sm text-gray-900"
+                      >
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                        <option value={200}>200</option>
+                      </select>
+                    </div>
+                    <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <span className="sr-only">Vorige</span>
+                        ←
+                      </button>
+                      
+                      {/* Page numbers */}
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setCurrentPage(pageNum)}
+                            className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                              currentPage === pageNum
+                                ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
+                                : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                        className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <span className="sr-only">Volgende</span>
+                        →
+                      </button>
+                    </nav>
+                  </div>
+                </div>
+              </div>
+            )}
             
             {/* Edit Modal */}
             {editingOrder && (
@@ -790,8 +1609,8 @@ export default function OrdersPage() {
                           value={selectedFulfillmentStatus}
                           onChange={(e) => setSelectedFulfillmentStatus(e.target.value)}
                         >
-                          <option value="pending">Te verzenden</option>
-                          <option value="processing">In behandeling</option>
+                          <option value="pending">Wacht op betaling</option>
+                          <option value="processing">Betaald - Gereed voor verzending</option>
                           <option value="shipped">Verzonden</option>
                           <option value="delivered">Afgeleverd</option>
                           <option value="cancelled">Geannuleerd</option>
@@ -881,6 +1700,15 @@ export default function OrdersPage() {
                   </div>
                 </div>
               </div>
+            )}
+            
+            {/* Order Details Modal */}
+            {showOrderDetails && viewingOrder && (
+              <OrderDetailsModal
+                order={viewingOrder}
+                onClose={handleCloseOrderDetails}
+                onPayNow={handlePayNowFromDetails}
+              />
             )}
             
             {/* Delete Confirmation Modal */}

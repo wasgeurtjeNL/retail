@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { resetApplicationData } from "@/lib/supabase";
+import { useFunnelTracker } from "@/lib/funnel-tracker";
 
 interface Address {
   street?: string;
@@ -18,6 +19,10 @@ interface RegistrationFormProps {
 
 export default function RegistrationForm({ initialAddress }: RegistrationFormProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const referralCode = searchParams.get('ref');
+  const invitationToken = searchParams.get('token');
+  
   const [formData, setFormData] = useState({
     businessName: "",
     contactName: "",
@@ -27,6 +32,9 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
     city: "",
     postalCode: "",
     country: "Netherlands",
+    kvkNumber: "",
+    vatNumber: "",
+    website: "",
     hearAboutUs: "",
     message: "",
     acceptTerms: false,
@@ -37,6 +45,11 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [debugMode, setDebugMode] = useState(false);
+  const [invitationData, setInvitationData] = useState<any>(null);
+  const [isValidatingToken, setIsValidatingToken] = useState(false);
+  const [hasStartedRegistration, setHasStartedRegistration] = useState(false);
+  
+  const funnelTracker = useFunnelTracker();
 
   // Debug mode key handler
   useEffect(() => {
@@ -61,6 +74,47 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [debugMode]);
 
+  // Validate invitation token
+  useEffect(() => {
+    const validateToken = async () => {
+      if (!invitationToken) return;
+
+      setIsValidatingToken(true);
+      try {
+        const response = await fetch('/api/invitations/validate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ token: invitationToken }),
+        });
+
+        const result = await response.json();
+
+        if (result.valid && result.invitation) {
+          setInvitationData(result.invitation);
+          // Pre-fill form with invitation data
+          setFormData(prev => ({
+            ...prev,
+            email: result.invitation.email || '',
+            businessName: result.invitation.business_name || '',
+            contactName: result.invitation.contact_name || '',
+            phone: result.invitation.phone || '',
+          }));
+        } else {
+          setSubmitError(result.error || 'Ongeldige uitnodigingstoken');
+        }
+      } catch (error) {
+        console.error('Error validating token:', error);
+        setSubmitError('Fout bij valideren van uitnodigingstoken');
+      } finally {
+        setIsValidatingToken(false);
+      }
+    };
+
+    validateToken();
+  }, [invitationToken]);
+
   // Update form data when initialAddress changes
   useEffect(() => {
     if (initialAddress) {
@@ -80,6 +134,20 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
     const { name, value, type } = e.target;
     const isCheckbox = type === "checkbox";
     
+    // Track registration started on first meaningful input
+    if (!hasStartedRegistration && funnelTracker && value.length > 0 && !isCheckbox) {
+      setHasStartedRegistration(true);
+      funnelTracker.trackRegistrationStarted({
+        firstField: name,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    // Track form field interactions
+    if (funnelTracker) {
+      funnelTracker.trackFormInteraction('change', name, isCheckbox ? (e.target as HTMLInputElement).checked : value);
+    }
+    
     setFormData({
       ...formData,
       [name]: isCheckbox ? (e.target as HTMLInputElement).checked : value,
@@ -90,6 +158,18 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
     e.preventDefault();
     setIsSubmitting(true);
     setSubmitError("");
+
+    // Track form submission attempt
+    if (funnelTracker) {
+      funnelTracker.trackFormSubmitted({
+        formData: {
+          businessName: formData.businessName,
+          email: formData.email,
+          hasInvitationToken: !!invitationToken,
+          wasstripsOptin: formData.wasstripsOptin
+        }
+      });
+    }
 
     try {
       // Call the registration API endpoint
@@ -107,10 +187,15 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
           city: formData.city,
           postalCode: formData.postalCode,
           country: formData.country,
+          kvkNumber: formData.kvkNumber,
+          vatNumber: formData.vatNumber,
+          website: formData.website,
           hearAboutUs: formData.hearAboutUs,
           message: formData.message,
           wasstripsOptin: formData.wasstripsOptin,
-          wasstripsDepositAgreed: formData.wasstripsDepositAgreed
+          wasstripsDepositAgreed: formData.wasstripsDepositAgreed,
+          invitationToken: invitationToken,
+          referralCode: referralCode // Include referral code if present
         }),
       });
       
@@ -130,6 +215,9 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
         city: formData.city,
         postalCode: formData.postalCode,
         country: formData.country,
+        kvkNumber: formData.kvkNumber,
+        vatNumber: formData.vatNumber,
+        website: formData.website,
         hearAboutUs: formData.hearAboutUs,
         message: formData.message,
         wasstripsOptin: formData.wasstripsOptin,
@@ -138,6 +226,17 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
         status: 'pending'
       }));
       
+      // Track successful registration completion
+      if (funnelTracker) {
+        funnelTracker.trackRegistrationCompleted({
+          businessName: formData.businessName,
+          email: formData.email,
+          hasInvitationToken: !!invitationToken,
+          wasstripsOptin: formData.wasstripsOptin,
+          registrationTimestamp: new Date().toISOString()
+        });
+      }
+      
       // Redirect to thank you page
       router.push('/registratie-ontvangen');
       
@@ -145,14 +244,62 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
       const errorMessage = error instanceof Error ? error.message : 'Er is een probleem opgetreden bij het versturen van uw formulier. Probeer het opnieuw.';
       setSubmitError(errorMessage);
       console.error("Form submission error:", error);
+      
+      // Track registration error
+      if (funnelTracker) {
+        funnelTracker.trackError('registration_submission_failed', errorMessage, {
+          formData: {
+            businessName: formData.businessName,
+            email: formData.email
+          }
+        });
+      }
+      
       setIsSubmitting(false);
     }
   };
+
+  if (isValidatingToken) {
+    return (
+      <div className="max-w-md mx-auto">
+        <div className="text-center py-12">
+          <svg className="animate-spin h-10 w-10 text-pink-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p className="text-gray-600">Uitnodiging valideren...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
       <form onSubmit={handleSubmit} className="space-y-6">
         <h2 className="text-2xl font-bold mb-8 text-center text-gray-800">Retailer Registratie</h2>
+        
+        {invitationData && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-green-800">
+                  Uitnodiging geaccepteerd
+                </h3>
+                <div className="mt-2 text-sm text-green-700">
+                  <p>U registreert zich via een uitnodiging. Uw account wordt automatisch goedgekeurd na registratie.</p>
+                  {invitationData.business_name && (
+                    <p className="mt-1"><strong>Bedrijf:</strong> {invitationData.business_name}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         
         {submitError && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded">
@@ -236,7 +383,7 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
                   </svg>
                 </div>
                 <input
-                  className="pl-10 shadow-sm appearance-none block w-full px-3 py-3 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-gray-900"
+                  className={`pl-10 shadow-sm appearance-none block w-full px-3 py-3 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-gray-900 ${invitationData ? 'bg-gray-50' : ''}`}
                   id="email"
                   name="email"
                   type="email"
@@ -244,6 +391,8 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
                   placeholder="uw@email.nl"
                   value={formData.email}
                   onChange={handleChange}
+                  disabled={!!invitationData}
+                  readOnly={!!invitationData}
                 />
               </div>
             </div>
@@ -371,6 +520,79 @@ export default function RegistrationForm({ initialAddress }: RegistrationFormPro
                 <option value="Germany">Duitsland</option>
                 <option value="Other">Anders</option>
               </select>
+            </div>
+          </div>
+        </div>
+        
+        <div className="bg-blue-50 p-4 rounded-lg mb-8">
+          <h3 className="text-blue-800 text-lg font-medium mb-4">Bedrijfsgegevens <span className="text-blue-600 text-sm font-normal">(optioneel)</span></h3>
+          <p className="text-blue-700 text-sm mb-4">Deze gegevens kunt u ook later invullen in uw profielpagina.</p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-gray-700 text-sm font-semibold mb-2" htmlFor="kvkNumber">
+                KvK nummer
+              </label>
+              <div className="relative mt-1 rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <input
+                  className="pl-10 shadow-sm appearance-none block w-full px-3 py-3 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-gray-900"
+                  id="kvkNumber"
+                  name="kvkNumber"
+                  type="text"
+                  placeholder="12345678"
+                  value={formData.kvkNumber}
+                  onChange={handleChange}
+                />
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-gray-700 text-sm font-semibold mb-2" htmlFor="vatNumber">
+                BTW nummer
+              </label>
+              <div className="relative mt-1 rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <input
+                  className="pl-10 shadow-sm appearance-none block w-full px-3 py-3 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-gray-900"
+                  id="vatNumber"
+                  name="vatNumber"
+                  type="text"
+                  placeholder="NL123456789B01"
+                  value={formData.vatNumber}
+                  onChange={handleChange}
+                />
+              </div>
+            </div>
+            
+            <div className="md:col-span-2">
+              <label className="block text-gray-700 text-sm font-semibold mb-2" htmlFor="website">
+                Website
+              </label>
+              <div className="relative mt-1 rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9m0 9c-5 0-9-4-9-9s4-9 9-9" />
+                  </svg>
+                </div>
+                <input
+                  className="pl-10 shadow-sm appearance-none block w-full px-3 py-3 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-pink-500 focus:border-pink-500 text-gray-900"
+                  id="website"
+                  name="website"
+                  type="url"
+                  placeholder="https://www.uwwebsite.nl"
+                  value={formData.website}
+                  onChange={handleChange}
+                />
+              </div>
             </div>
           </div>
         </div>

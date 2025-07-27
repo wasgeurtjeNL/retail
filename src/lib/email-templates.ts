@@ -1265,12 +1265,13 @@ Met vriendelijke groet,
 
       Bedankt voor uw vertrouwen in Wasgeurtje!
 
-      Met vriendelijke groet,
-      Het Wasgeurtje Team
+Met vriendelijke groet,
+Het Wasgeurtje Team
 
 © {{currentYear}} Wasgeurtje.nl
     `
   },
+
 };
 
 // Kompileert een Handlebars-achtige template met context
@@ -1430,7 +1431,7 @@ export const saveEmailTemplate = async (
 // Reset een template naar standaard waarden
 export const resetEmailTemplate = async (templateKey: string) => {
   try {
-    if (!defaultTemplates[templateKey]) {
+    if (!isTemplateKey(templateKey)) {
       return { success: false, error: 'Template niet gevonden' };
     }
     

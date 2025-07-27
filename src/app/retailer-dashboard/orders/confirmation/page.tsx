@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { deleteOrder } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface OrderDetails {
   id: string;
@@ -22,6 +23,15 @@ interface OrderDetails {
     houseNumber?: string;
     houseNumberAddition?: string;
     postcode?: string;
+  };
+  billingInfo?: {
+    company_name?: string;
+    contact_name?: string;
+    address?: string;
+    city?: string;
+    postal_code?: string;
+    kvk_number?: string;
+    vat_number?: string;
   };
   paymentMethod?: 'invoice' | 'stripe';
   paymentStatus?: 'processing' | 'requires_action' | 'succeeded' | 'canceled' | 'failed' | 'pending' | 'paid' | 'expired' | 'requires_payment_method';
@@ -56,14 +66,24 @@ export default function OrderConfirmationPage() {
   const searchParams = useSearchParams();
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const { user } = useAuth();
   
   useEffect(() => {
-    // Check if we have returned from Stripe with a session_id and order_id
+    // Check if we have returned from Stripe with a session_id and order_id/application_id
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('session_id');
     const orderId = params.get('order_id');
+    const applicationId = params.get('application_id');
+    const paymentType = params.get('payment_type');
     
-    console.log('[Confirmation] URL params:', { sessionId, orderId });
+    console.log('[Confirmation] URL params:', { sessionId, orderId, applicationId, paymentType });
+    
+    // Als we een application_id hebben, behandel dit als een wasstrips order
+    if (applicationId) {
+      console.log('[Confirmation] Loading wasstrips order from application_id:', applicationId);
+      loadWasstripsOrderByApplicationId(applicationId, sessionId, paymentType);
+      return;
+    }
     
     // Als we een order_id hebben van een wasstrips order, laad dan die specifieke order
     if (orderId && orderId.startsWith('WS-')) {
@@ -72,9 +92,16 @@ export default function OrderConfirmationPage() {
       return;
     }
     
+    // Als we een session_id hebben, probeer eerst de order te laden uit de database
+    if (sessionId) {
+      console.log('[Confirmation] Loading order from database with session_id:', sessionId);
+      loadOrderFromDatabase(sessionId, orderId);
+      return;
+    }
+    
     if (!localStorage) return;
     
-    // Try to get the last order from localStorage (voor catalogus orders)
+    // Fallback: Try to get the last order from localStorage (voor catalogus orders)
     const lastOrderJson = localStorage.getItem('lastOrder');
     
     if (!lastOrderJson) {
@@ -129,6 +156,158 @@ export default function OrderConfirmationPage() {
     }
   }, []);
   
+  // Nieuwe functie om order te laden uit de database
+  const loadOrderFromDatabase = async (sessionId: string, orderId: string | null) => {
+    try {
+      console.log('[Confirmation] Loading order from database:', { sessionId, orderId });
+      
+      // Check if user is available
+      if (!user?.email) {
+        console.error('[Confirmation] No user email available');
+        tryToRecoverFromOrderHistory(sessionId);
+        return;
+      }
+      
+      // Haal de order op uit de database via API
+      const response = await fetch(`/api/orders?email=${encodeURIComponent(user.email)}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        console.error('[Confirmation] Failed to fetch orders from database');
+        tryToRecoverFromOrderHistory(sessionId);
+        return;
+      }
+      
+      const orders = await response.json();
+      console.log('[Confirmation] Received orders from database:', orders.length);
+      
+      // Zoek de order die overeenkomt met de session ID of order ID
+      let matchingOrder = null;
+      
+      if (orderId) {
+        // Zoek eerst op order ID
+        matchingOrder = orders.find((order: any) => order.id === orderId || order.order_number === orderId);
+        console.log('[Confirmation] Found order by ID:', matchingOrder?.order_number);
+      }
+      
+      if (!matchingOrder && sessionId) {
+        // Als geen match op ID, zoek op stripe_session_id
+        matchingOrder = orders.find((order: any) => order.stripe_session_id === sessionId);
+        console.log('[Confirmation] Found order by session ID:', matchingOrder?.order_number);
+      }
+      
+      if (!matchingOrder) {
+        console.warn('[Confirmation] No matching order found in database');
+        tryToRecoverFromOrderHistory(sessionId);
+        return;
+      }
+      
+      // Converteer database order naar OrderDetails format
+      const orderDetails: OrderDetails = {
+        id: matchingOrder.order_number || matchingOrder.id,
+        totalAmount: parseFloat(matchingOrder.total_amount || 0),
+        items: matchingOrder.metadata?.items || [{
+          id: 'unknown',
+          name: 'Bestelling',
+          quantity: 1,
+          price: parseFloat(matchingOrder.total_amount || 0),
+        }],
+        date: matchingOrder.created_at || new Date().toISOString(),
+        paymentMethod: 'stripe',
+        paymentStatus: matchingOrder.payment_status === 'paid' ? 'paid' : (sessionId ? 'paid' : 'pending'),
+        stripeSessionId: sessionId || matchingOrder.stripe_session_id,
+        shippingAddress: {
+          street: matchingOrder.shipping_address,
+          city: matchingOrder.shipping_city,
+          postcode: matchingOrder.shipping_postal_code,
+        },
+        billingInfo: {
+          company_name: matchingOrder.metadata?.billing_company_name || matchingOrder.billing_address,
+          contact_name: matchingOrder.metadata?.billing_contact_name,
+          address: matchingOrder.billing_address,
+          city: matchingOrder.billing_city,
+          postal_code: matchingOrder.billing_postal_code,
+          kvk_number: matchingOrder.metadata?.billing_kvk_number,
+          vat_number: matchingOrder.metadata?.billing_vat_number,
+        }
+      };
+      
+      console.log('[Confirmation] Created order details from database:', orderDetails);
+      
+      setOrderDetails(orderDetails);
+      setIsLoaded(true);
+      
+      // Sla op voor geschiedenis
+      addOrderToHistory(orderDetails);
+      
+      // Update localStorage met de correcte order
+      localStorage.setItem('lastOrder', JSON.stringify(orderDetails));
+      
+    } catch (error) {
+      console.error('[Confirmation] Error loading order from database:', error);
+      tryToRecoverFromOrderHistory(sessionId);
+    }
+  };
+  
+  // Nieuwe functie om wasstrips order te laden via application ID
+  const loadWasstripsOrderByApplicationId = async (applicationId: string, sessionId: string | null, paymentType: string | null) => {
+    try {
+      console.log('[Confirmation] Loading wasstrips application:', applicationId);
+      
+      // Haal de wasstrips application op via API
+      const response = await fetch(`/api/wasstrips-applications/${applicationId}`);
+      
+      if (!response.ok) {
+        console.error('[Confirmation] Failed to fetch wasstrips application');
+        createFallbackOrder(sessionId || '');
+        return;
+      }
+      
+      const { application } = await response.json();
+      console.log('[Confirmation] Retrieved wasstrips application:', application);
+      
+      // Converteer naar OrderDetails format
+      const orderDetails: OrderDetails = {
+        id: `WS-${applicationId.split('-')[0]}`,
+        totalAmount: application.total || 300.00,
+        items: [{
+          id: 'wasstrips-starter',
+          name: 'Wasstrips Starterpakket',
+          quantity: 1,
+          price: application.total || 300.00,
+          image_url: '/assets/images/wasstrips-product.jpg'
+        }],
+        date: application.createdAt || new Date().toISOString(),
+        paymentMethod: 'stripe',
+        paymentStatus: 'paid',
+        stripeSessionId: sessionId || '',
+        shippingAddress: {
+          street: '',
+          city: '',
+          postcode: ''
+        }
+      };
+      
+      console.log('[Confirmation] Created wasstrips order details:', orderDetails);
+      
+      setOrderDetails(orderDetails);
+      setIsLoaded(true);
+      
+      // Sla op in localStorage en geschiedenis
+      localStorage.setItem('lastOrder', JSON.stringify(orderDetails));
+      addOrderToHistory(orderDetails);
+      syncOrderToAdminDashboard(orderDetails);
+      
+    } catch (error) {
+      console.error('[Confirmation] Error loading wasstrips application:', error);
+      createFallbackOrder(sessionId || '');
+    }
+  };
+
   // Nieuwe functie om wasstrips order te laden
   const loadWasstripsOrder = async (orderId: string, sessionId: string | null) => {
     try {
@@ -621,6 +800,42 @@ export default function OrderConfirmationPage() {
                     </div>
                   ))}
                 </div>
+                
+                {/* Factuurgegevens sectie */}
+                {orderDetails.billingInfo && (
+                  <div className="mt-8">
+                    <h3 className="font-bold mb-4 text-black text-lg border-b border-gray-200 pb-2">Factuurgegevens</h3>
+                    <div className="rounded-lg bg-gray-50 p-5 border border-gray-100 shadow-sm">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">Bedrijfsnaam</p>
+                          <p className="text-gray-900 font-semibold">{orderDetails.billingInfo.company_name || 'Niet opgegeven'}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">Contactpersoon</p>
+                          <p className="text-gray-900 font-semibold">{orderDetails.billingInfo.contact_name || 'Niet opgegeven'}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">Adres</p>
+                          <p className="text-gray-900 font-semibold">
+                            {orderDetails.billingInfo.address || 'Niet opgegeven'}
+                            {orderDetails.billingInfo.city && (
+                              <span className="block">{orderDetails.billingInfo.postal_code} {orderDetails.billingInfo.city}</span>
+                            )}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">KvK nummer</p>
+                          <p className="text-gray-900 font-semibold">{orderDetails.billingInfo.kvk_number || 'Niet opgegeven'}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">BTW nummer</p>
+                          <p className="text-gray-900 font-semibold">{orderDetails.billingInfo.vat_number || 'Niet opgegeven'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Payment info blijft grotendeels hetzelfde */}
                 {orderDetails.paymentMethod && (

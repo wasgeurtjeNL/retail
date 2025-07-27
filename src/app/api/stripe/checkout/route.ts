@@ -66,9 +66,9 @@ export async function POST(req: NextRequest) {
         console.log('[API] Processing direct amount checkout for order:', orderId, 'amount:', amount);
         // Direct amount checkout (pay existing order) - zoals in werkende wasstrips-payment
         lineItems = [{
-          price_data: {
-            currency: 'eur',
-            product_data: {
+        price_data: {
+          currency: 'eur',
+          product_data: {
               name: `Betaling voor bestelling ${orderId}`,
               description: `Openstaande betaling voor order ${orderId}`, // Altijd een geldige description
             },
@@ -93,10 +93,10 @@ export async function POST(req: NextRequest) {
               product_data: {
                 name: item.name || item.price_data?.product_data?.name || 'Product',
                 description: item.description || item.price_data?.product_data?.description || 'Productbeschrijving', // Altijd een geldige description
-              },
+          },
               unit_amount: unitAmount,
-            },
-            quantity: item.quantity || 1,
+        },
+        quantity: item.quantity || 1,
           };
         });
       } else {
@@ -162,9 +162,9 @@ export async function POST(req: NextRequest) {
       
       // Return the session URL
       const responseData = { 
-        success: true, 
-        url: session.url,
-        sessionId: session.id
+          success: true, 
+          url: session.url,
+          sessionId: session.id
       };
       
       console.log('[API] Returning response:', responseData);

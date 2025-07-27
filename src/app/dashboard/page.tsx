@@ -16,25 +16,6 @@ const debugLog = (message: string, data?: any) => {
   console.debug(`[DEBUG] Dashboard: ${message}`, data || '');
 };
 
-// Reset knop component
-const ResetDataButton = () => {
-  const handleReset = () => {
-    if (window.confirm('Dit zal alle mockdata resetten. Doorgaan?')) {
-      resetApplicationData();
-      alert('Data is gereset. Herlaad de pagina om de wijzigingen te zien.');
-    }
-  };
-  
-  return (
-    <button
-      onClick={handleReset}
-      className="inline-flex items-center px-4 py-2 border border-red-500 text-sm font-medium rounded-md text-red-500 bg-white hover:bg-red-50 focus:outline-none"
-    >
-      <span className="mr-2">🔄</span> Reset mock-data
-    </button>
-  );
-};
-
 // Nieuwe asynchrone functie:
 const fetchWasstripsApplications = async () => {
   try {
@@ -66,12 +47,41 @@ const fetchWasstripsApplications = async () => {
   }
 };
 
+// Fetch prospects count
+const fetchProspectsCount = async () => {
+  try {
+    console.log('[DEBUG] Fetching prospects count from API...');
+    const res = await fetch('/api/commercial/prospects?limit=1');
+    
+    if (!res.ok) {
+      console.error('[DEBUG] Prospects API response not OK:', res.status);
+      return 0;
+    }
+    
+    const result = await res.json();
+    console.log('[DEBUG] Prospects API response:', result);
+    
+    if (result && result.success && result.data && result.data.statistics) {
+      const total = result.data.statistics.total || 0;
+      console.log('[DEBUG] Total prospects:', total);
+      return total;
+    }
+    
+    console.log('[DEBUG] No prospects found or invalid structure');
+    return 0;
+  } catch (error) {
+    console.error('[DEBUG] Error fetching prospects from API:', error);
+    return 0;
+  }
+};
+
 export default function DashboardPage() {
   const { user, isLoading: authLoading, isAdmin } = useAuth();
   const [pendingRetailersCount, setPendingRetailersCount] = useState(0);
   const [productsCount, setProductsCount] = useState(0);
   const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
   const [wasstripsApplicationsCount, setWasstripsApplicationsCount] = useState(0);
+  const [prospectsCount, setProspectsCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const mountedRef = useRef(true);
 
@@ -167,13 +177,19 @@ export default function DashboardPage() {
           const wasstripsAppsCount = await fetchWasstripsApplications();
           console.log("[DEBUG] wasstripsAppsCount result:", wasstripsAppsCount);
           
+          // Get prospects count
+          console.log("[DEBUG] Fetching prospects count");
+          const prospectsCount = await fetchProspectsCount();
+          console.log("[DEBUG] prospectsCount result:", prospectsCount);
+          
           // Only update state if still mounted
           if (mountedRef.current) {
-            console.log("[DEBUG] Updating state with counts:", { productCount, pendingRetailersCount, pendingOrdersCount, wasstripsAppsCount });
+            console.log("[DEBUG] Updating state with counts:", { productCount, pendingRetailersCount, pendingOrdersCount, wasstripsAppsCount, prospectsCount });
             setProductsCount(productCount);
             setPendingRetailersCount(pendingRetailersCount);
             setPendingOrdersCount(pendingOrdersCount);
             setWasstripsApplicationsCount(wasstripsAppsCount);
+            setProspectsCount(prospectsCount);
             setIsLoading(false);
           }
         } catch (error) {
@@ -184,6 +200,7 @@ export default function DashboardPage() {
             setPendingRetailersCount(0);
             setPendingOrdersCount(0);
             setWasstripsApplicationsCount(0);
+            setProspectsCount(0);
             setIsLoading(false);
           }
         }
@@ -197,6 +214,7 @@ export default function DashboardPage() {
           setPendingRetailersCount(0);
           setPendingOrdersCount(0);
           setWasstripsApplicationsCount(0);
+          setProspectsCount(0);
           setIsLoading(false);
         }
       }
@@ -207,6 +225,7 @@ export default function DashboardPage() {
       loadData().catch(error => {
         console.error('Unhandled error in loadData:', error);
         if (mountedRef.current) {
+          setProspectsCount(0);
           setIsLoading(false);
         }
       });
@@ -216,10 +235,11 @@ export default function DashboardPage() {
         if (!authLoading && mountedRef.current) {
           clearInterval(checkAuthInterval);
           loadData().catch(error => {
-            console.error('Unhandled error in loadData:', error);
-            if (mountedRef.current) {
-              setIsLoading(false);
-            }
+                    console.error('Unhandled error in loadData:', error);
+        if (mountedRef.current) {
+          setProspectsCount(0);
+          setIsLoading(false);
+        }
           });
         }
       }, 100);
@@ -291,7 +311,6 @@ export default function DashboardPage() {
                 </p>
               </div>
               <div className="flex items-center space-x-4">
-                <ResetDataButton />
                 <LogoutButton />
               </div>
             </div>
@@ -306,7 +325,7 @@ export default function DashboardPage() {
                     <div className="flex items-center">
                       <div className="flex-shrink-0 bg-purple-500 rounded-md p-3">
                         <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
                       </div>
                       <div className="ml-5 w-0 flex-1">
@@ -314,24 +333,10 @@ export default function DashboardPage() {
                           <dt className="text-sm font-medium text-gray-500 truncate">
                             Retailer Aanvragen
                           </dt>
-                          <dd className="flex items-baseline">
-                            <div className="text-2xl font-semibold text-gray-900">
-                              {isLoading ? (
-                                <svg className="animate-spin h-5 w-5 text-pink-600 inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                              ) : (
-                                pendingRetailersCount
-                              )}
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              {pendingRetailersCount}
                             </div>
-                            {pendingRetailersCount > 0 && (
-                              <div className="ml-2">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                  {pendingRetailersCount} nieuw
-                                </span>
-                              </div>
-                            )}
                           </dd>
                         </dl>
                       </div>
@@ -352,7 +357,7 @@ export default function DashboardPage() {
                     <div className="flex items-center">
                       <div className="flex-shrink-0 bg-pink-500 rounded-md p-3">
                         <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
                         </svg>
                       </div>
                       <div className="ml-5 w-0 flex-1">
@@ -360,21 +365,9 @@ export default function DashboardPage() {
                           <dt className="text-sm font-medium text-gray-500 truncate">
                             Producten
                           </dt>
-                          <dd className="flex items-baseline">
-                            <div className="text-2xl font-semibold text-gray-900">
-                              {isLoading ? (
-                                <svg className="animate-spin h-5 w-5 text-pink-600 inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                              ) : (
-                                productsCount
-                              )}
-                            </div>
-                            <div className="ml-2">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                Catalogus
-                              </span>
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              {productsCount}
                             </div>
                           </dd>
                         </dl>
@@ -396,7 +389,7 @@ export default function DashboardPage() {
                     <div className="flex items-center">
                       <div className="flex-shrink-0 bg-green-500 rounded-md p-3">
                         <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
                         </svg>
                       </div>
                       <div className="ml-5 w-0 flex-1">
@@ -404,24 +397,10 @@ export default function DashboardPage() {
                           <dt className="text-sm font-medium text-gray-500 truncate">
                             Bestellingen
                           </dt>
-                          <dd className="flex items-baseline">
-                            <div className="text-2xl font-semibold text-gray-900">
-                              {isLoading ? (
-                                <svg className="animate-spin h-5 w-5 text-green-600 inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                              ) : (
-                                pendingOrdersCount
-                              )}
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              {pendingOrdersCount}
                             </div>
-                            {pendingOrdersCount > 0 && (
-                              <div className="ml-2">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                  Te verzenden
-                                </span>
-                              </div>
-                            )}
                           </dd>
                         </dl>
                       </div>
@@ -436,13 +415,45 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 
+                {/* Bedrijfsuitnodigingen */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-pink-500 rounded-md p-3">
+                        <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">
+                            Uitnodigingen
+                          </dt>
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              Beheer
+                            </div>
+                          </dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-5 py-3">
+                    <div className="text-sm">
+                      <Link href="/dashboard/invitations" className="font-medium text-pink-600 hover:text-pink-500">
+                        Bedrijven uitnodigen
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+                
                 {/* Wasstrips Aanvragen - NIEUWE KAART */}
                 <div className="bg-white overflow-hidden shadow rounded-lg">
                   <div className="p-5">
                     <div className="flex items-center">
                       <div className="flex-shrink-0 bg-cyan-500 rounded-md p-3">
                         <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
                         </svg>
                       </div>
                       <div className="ml-5 w-0 flex-1">
@@ -450,24 +461,10 @@ export default function DashboardPage() {
                           <dt className="text-sm font-medium text-gray-500 truncate">
                             Wasstrips Aanvragen
                           </dt>
-                          <dd className="flex items-baseline">
-                            <div className="text-2xl font-semibold text-gray-900">
-                              {isLoading ? (
-                                <svg className="animate-spin h-5 w-5 text-cyan-600 inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                              ) : (
-                                wasstripsApplicationsCount
-                              )}
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              {wasstripsApplicationsCount}
                             </div>
-                            {wasstripsApplicationsCount > 0 && (
-                              <div className="ml-2">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                  Retailers in behandeling
-                                </span>
-                              </div>
-                            )}
                           </dd>
                         </dl>
                       </div>
@@ -481,7 +478,199 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Recente Activiteit */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-yellow-500 rounded-md p-3">
+                        <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                        </svg>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">
+                            Recente Activiteit
+                          </dt>
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              Overzicht
+                            </div>
+                          </dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-5 py-3">
+                    <div className="text-sm">
+                      <Link href="/dashboard/recent-activity" className="font-medium text-yellow-600 hover:text-yellow-500">
+                        Bekijk activiteit
+                      </Link>
+                    </div>
+                  </div>
+                </div>
                 
+                {/* Website Analyse - NIEUWE KAART */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-blue-500 rounded-md p-3">
+                        <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">
+                            Website Analyses
+                          </dt>
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              AI-gedreven
+                            </div>
+                          </dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-5 py-3">
+                    <div className="text-sm">
+                      <Link href="/dashboard/website-analysis" className="font-medium text-blue-600 hover:text-blue-500">
+                        Beheer analyses
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sales Success Metrics - NIEUWE KAART */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-md p-3">
+                        <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">
+                            Sales Success Program
+                          </dt>
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              Metrics & ROI
+                            </div>
+                          </dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-5 py-3">
+                    <div className="text-sm">
+                      <Link href="/dashboard/sales-metrics" className="font-medium text-purple-600 hover:text-purple-500">
+                        Bekijk success metrics
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sales Analytics - NIEUWE KAART */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-gradient-to-r from-blue-500 to-purple-500 rounded-md p-3">
+                        <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">
+                            Sales Analytics
+                          </dt>
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              Performance Insights
+                            </div>
+                          </dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-5 py-3">
+                    <div className="text-sm">
+                      <Link href="/dashboard/sales-analytics" className="font-medium text-blue-600 hover:text-blue-500">
+                        Bekijk analytics
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sales Metrics - NIEUWE KAART */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-gradient-to-r from-orange-500 to-red-500 rounded-md p-3">
+                        <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">
+                            Sales Metrics
+                          </dt>
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              Retailer Engagement
+                            </div>
+                          </dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-5 py-3">
+                    <div className="text-sm">
+                      <Link href="/dashboard/sales-metrics" className="font-medium text-orange-600 hover:text-orange-500">
+                        Bekijk metrics
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fulfillment Orders - NIEUWE KAART */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-orange-500 rounded-md p-3">
+                        <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                        </svg>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">
+                            Fulfillment Orders
+                          </dt>
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              Trial Packages
+                            </div>
+                          </dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-5 py-3">
+                    <div className="text-sm">
+                      <Link href="/dashboard/fulfillment" className="font-medium text-orange-600 hover:text-orange-500">
+                        Beheer fulfillment
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Monitoring */}
                 <div className="bg-white overflow-hidden shadow rounded-lg">
                   <div className="p-5">
@@ -497,7 +686,7 @@ export default function DashboardPage() {
                             Monitoring
                           </dt>
                           <dd>
-                            <div className="text-2xl font-semibold text-gray-900">
+                            <div className="text-lg font-medium text-gray-900">
                               Real-time
                             </div>
                           </dd>
@@ -513,6 +702,131 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </div>
+                
+                {/* Funnel Analyse */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-indigo-500 rounded-md p-3">
+                        <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">
+                            Funnel Analyse
+                          </dt>
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              Conversie Tracking
+                            </div>
+                          </dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-5 py-3">
+                    <div className="text-sm space-y-1">
+                      <div>
+                        <Link href="/dashboard/funnel-analysis" className="font-medium text-indigo-600 hover:text-indigo-500">
+                          📊 Conversie overzicht →
+                        </Link>
+                      </div>
+                      <div>
+                        <Link href="/dashboard/funnel-details" className="font-medium text-purple-600 hover:text-purple-500">
+                          🔍 Gedetailleerde tracking →
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Commerciële Acquisitie - NIEUWE KAART */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-gradient-to-r from-pink-500 to-purple-600 rounded-md p-3">
+                        <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">
+                            Commerciële Acquisitie
+                          </dt>
+                          <dd>
+                            <div className="text-lg font-medium text-gray-900">
+                              AI-gedreven prospecting
+                            </div>
+                          </dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-5 py-3">
+                    <div className="text-sm space-y-1">
+                      <div>
+                        <Link href="/dashboard/commercial-acquisition" className="font-medium text-pink-600 hover:text-pink-500">
+                          🎯 Acquisitie Dashboard →
+                        </Link>
+                      </div>
+                      <div>
+                        <Link href="/dashboard/commercial-acquisition?tab=two_phase_automation" className="font-medium text-blue-600 hover:text-blue-500">
+                          🚀 2-Fase Automation →
+                        </Link>
+                      </div>
+                      <div>
+                        <Link href="/dashboard/segment-templates" className="font-medium text-indigo-600 hover:text-indigo-500">
+                          🎨 Segment Templates →
+                        </Link>
+                      </div>
+                      <div>
+                        <Link href="/commercial-partner" target="_blank" className="font-medium text-purple-600 hover:text-purple-500">
+                          📄 Landing Page Preview →
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Prospects Database - NIEUWE KAART */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                  <div className="p-5">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-gradient-to-r from-green-500 to-blue-600 rounded-md p-3">
+                        <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                      </div>
+                      <div className="ml-5 w-0 flex-1">
+                        <dl>
+                          <dt className="text-sm font-medium text-gray-500 truncate">
+                            Prospects Database
+                          </dt>
+                                                     <dd>
+                             <div className="text-lg font-medium text-gray-900">
+                               {prospectsCount} prospects gevonden
+                             </div>
+                           </dd>
+                        </dl>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 px-5 py-3">
+                    <div className="text-sm space-y-1">
+                      <div>
+                        <Link href="/dashboard/prospects" className="font-medium text-green-600 hover:text-green-500">
+                          👥 Alle prospects bekijken →
+                        </Link>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        🧠 Via Perplexity AI gevonden
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Instellingen */}
                 <div className="bg-white overflow-hidden shadow rounded-lg">
@@ -520,8 +834,8 @@ export default function DashboardPage() {
                     <div className="flex items-center">
                       <div className="flex-shrink-0 bg-gray-500 rounded-md p-3">
                         <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
                       </div>
                       <div className="ml-5 w-0 flex-1">
@@ -530,7 +844,7 @@ export default function DashboardPage() {
                             Instellingen
                           </dt>
                           <dd>
-                            <div className="text-2xl font-semibold text-gray-900">
+                            <div className="text-lg font-medium text-gray-900">
                               Configuratie
                             </div>
                           </dd>
@@ -548,76 +862,6 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
-            
-            <div className="bg-white shadow sm:rounded-lg">
-              <div className="px-4 py-5 sm:px-6">
-                <h3 className="text-lg leading-6 font-medium text-gray-900">
-                  Recente Activiteit
-                </h3>
-                <p className="mt-1 max-w-2xl text-sm text-gray-500">
-                  Overzicht van recente gebeurtenissen op het platform.
-                </p>
-              </div>
-              <div className="border-t border-gray-200">
-                <dl>
-                  <div className="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                    <dt className="text-sm font-medium text-gray-500">
-                      Retailer aanvragen
-                    </dt>
-                    <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                      {pendingRetailersCount === 0 
-                        ? 'Geen openstaande aanvragen' 
-                        : `${pendingRetailersCount} nieuwe aanvragen die goedkeuring vereisen`}
-                    </dd>
-                  </div>
-                  <div className="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                    <dt className="text-sm font-medium text-gray-500">
-                      Wasstrips aanvragen
-                    </dt>
-                    <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                      {wasstripsApplicationsCount === 0 
-                        ? 'Geen Wasstrips aanvragen van retailers in behandeling' 
-                        : `${wasstripsApplicationsCount} aanvragen van retailers die nog goedkeuring wachten`}
-                    </dd>
-                  </div>
-                  <div className="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                    <dt className="text-sm font-medium text-gray-500">
-                      Te verzenden bestellingen
-                    </dt>
-                    <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                      {pendingOrdersCount === 0 
-                        ? 'Geen bestellingen te verzenden' 
-                        : `${pendingOrdersCount} bestellingen wachten op verzending`}
-                    </dd>
-                  </div>
-                  <div className="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                    <dt className="text-sm font-medium text-gray-500">
-                      Laatste login
-                    </dt>
-                    <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                      {new Date().toLocaleString('nl-NL')}
-                    </dd>
-                  </div>
-                  <div className="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                    <dt className="text-sm font-medium text-gray-500">
-                      Producten catalogus
-                    </dt>
-                    <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                      {productsCount === 0 
-                        ? 'Geen producten in de catalogus' 
-                        : `${productsCount} producten beschikbaar in de catalogus`}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-            </div>
-            
-            {/* Wasstrips Aanvragen Overview */}
-            <div className="mt-6">
-              <WasstripsApplicationsOverview />
-            </div>
-            
-            <AdminRetailerSwitchNotice />
           </div>
         </div>
       </main>

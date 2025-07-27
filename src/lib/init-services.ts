@@ -1,6 +1,7 @@
 // Initialiseert alle service clients wanneer de applicatie start
 import { isMandrillConfigured } from './mail-service';
 import { supabase } from './supabase';
+import { startQueueWorker } from './queue-manager';
 
 // Dit wordt alleen op de server uitgevoerd
 export const initServices = async () => {
@@ -43,6 +44,17 @@ export const initServices = async () => {
     console.log('Application will continue but some features may not work properly');
   }
   
+  // Start de Queue Manager Worker om background jobs te verwerken
+  if (typeof window === 'undefined') {
+    try {
+      console.log('[INIT] Starting Queue Manager Worker...');
+      await startQueueWorker();
+      console.log('[INIT] Queue Manager Worker started successfully.');
+    } catch (error) {
+      console.error('[INIT] Failed to start Queue Manager Worker:', error);
+    }
+  }
+
   // Andere services kunnen hier worden geïnitialiseerd
   // ...
 };

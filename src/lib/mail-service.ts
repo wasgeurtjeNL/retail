@@ -49,12 +49,42 @@ export const testMandrillConnection = async () => {
   }
 
   try {
-    // Ping de Mandrill API om te testen of de verbinding werkt
-    const result = await mandrillClient.users.ping();
-    return { success: result === 'PONG!' };
-  } catch (error) {
-    console.error('Error testing Mandrill connection:', error);
-    return { success: false, error: 'Verbinding met Mandrill API mislukt' };
+    console.log('[MANDRILL] Testing connection with API key:', mandrillApiKey?.substring(0, 6) + '...');
+    
+    // Test de verbinding met een users/ping call
+    const response = await mandrillClient.users.ping();
+    console.log('[MANDRILL] Ping response:', response);
+    
+    return { 
+      success: true, 
+      message: 'Mandrill verbinding succesvol',
+      response: response
+    };
+  } catch (error: any) {
+    console.error('[MANDRILL] Connection test failed:', error);
+    
+    // Specifieke error handling voor verschillende Mandrill fouten
+    let errorMessage = 'Onbekende fout bij testen van Mandrill verbinding';
+    
+    if (error.response?.status === 401) {
+      errorMessage = 'Mandrill API key is ongeldig of verlopen. Controleer je MANDRILL_API_KEY in .env.local';
+    } else if (error.response?.status === 403) {
+      errorMessage = 'Mandrill API key heeft onvoldoende permissies';
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      errorMessage = 'Kan geen verbinding maken met Mandrill servers. Controleer je internetverbinding.';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    return { 
+      success: false, 
+      error: errorMessage,
+      details: {
+        status: error.response?.status,
+        code: error.code,
+        message: error.message
+      }
+    };
   }
 };
 
@@ -70,6 +100,19 @@ export const getMandrillConfig = () => {
     apiKey: mandrillApiKey ? '********' + mandrillApiKey.slice(-4) : null,
     fromEmail: DEFAULT_FROM_EMAIL,
     fromName: DEFAULT_FROM_NAME
+  };
+};
+
+// Haal de huidige email configuratie op
+export const getEmailConfiguration = () => {
+  return {
+    configured: !!mandrillApiKey && !!mandrillClient,
+    apiKey: mandrillApiKey ? '********' + mandrillApiKey.slice(-4) : null,
+    fromEmail: DEFAULT_FROM_EMAIL,
+    fromName: DEFAULT_FROM_NAME,
+    environment: process.env.NODE_ENV || 'development',
+    hasClient: !!mandrillClient,
+    keyFormat: mandrillApiKey ? (mandrillApiKey.startsWith('md-') ? 'correct' : 'incorrect') : 'missing'
   };
 };
 
@@ -211,12 +254,50 @@ export const sendEmail = async ({
     // Als we hier zijn, is ten minste één email succesvol verzonden
     console.log(`[EMAIL] Email succesvol verzonden naar ${typeof to === 'string' ? to : 'meerdere ontvangers'}`);
     return { success: true, result };
-  } catch (error) {
+  } catch (error: any) {
     console.error('[EMAIL] Error sending email:', error);
+    
+    // Specifieke error handling voor verschillende Mandrill API fouten
+    let errorMessage = 'Onbekende fout bij verzenden email';
+    let isConfigurationError = false;
+    
+    if (error.response?.status === 401) {
+      errorMessage = '🔑 Mandrill API key is ongeldig of verlopen. Controleer je MANDRILL_API_KEY in .env.local';
+      isConfigurationError = true;
+      console.error('[EMAIL] 401 Unauthorized - Mandrill API key probleem');
+    } else if (error.response?.status === 403) {
+      errorMessage = '🚫 Mandrill API key heeft onvoldoende permissies voor het verzenden van emails';
+      isConfigurationError = true;
+    } else if (error.response?.status === 429) {
+      errorMessage = '⏰ Mandrill API rate limit bereikt. Probeer het later opnieuw.';
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      errorMessage = '🌐 Kan geen verbinding maken met Mandrill servers. Controleer je internetverbinding.';
+    } else if (error.response?.data?.message) {
+      errorMessage = `Mandrill API error: ${error.response.data.message}`;
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    // Extra logging voor configuratie problemen
+    if (isConfigurationError) {
+      console.error('[EMAIL] CONFIGURATIE PROBLEEM:');
+      console.error('[EMAIL] - Controleer of MANDRILL_API_KEY correct is ingesteld in .env.local');
+      console.error('[EMAIL] - API Key format: md-xxxxxxxxxxxxxxxxxx');
+      console.error('[EMAIL] - Huidige key (masked):', mandrillApiKey?.substring(0, 6) + '...');
+    }
+    
     return { 
       success: false, 
-      error,
-      errorMessage: error instanceof Error ? error.message : 'Onbekende fout bij verzenden email' 
+      error: new Error(errorMessage),
+      errorMessage,
+      isConfigurationError,
+      httpStatus: error.response?.status,
+      details: {
+        status: error.response?.status,
+        code: error.code,
+        message: error.message,
+        url: error.config?.url
+      }
     };
   }
 };

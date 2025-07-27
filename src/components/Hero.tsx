@@ -73,7 +73,7 @@ export default function Hero() {
   return (
     <section className="relative">
       {/* Main Hero Section */}
-      <div className="relative overflow-hidden">
+      <div className="relative">
         {/* Limited Time Offer Banner - Both Mobile and Desktop */}
         <div className="bg-black text-white py-1.5 text-center flex justify-center items-center space-x-2 text-xs sm:text-sm sm:space-x-3 sm:py-2 relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/20 via-transparent to-yellow-500/20 animate-pulse-slow"></div>
@@ -88,7 +88,7 @@ export default function Hero() {
         </div>
         
         {/* NEW: Wasstrips Banner - Both Mobile and Desktop */}
-        <div className="bg-gradient-to-r from-cyan-600 via-cyan-500 to-cyan-600 text-white py-2 text-center relative overflow-hidden">
+        <div className="bg-gradient-to-r from-cyan-600 via-cyan-500 to-cyan-600 text-white py-2 text-center relative overflow-hidden z-10">
           <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/0 via-cyan-300/20 to-cyan-500/0 animate-pulse-slow"></div>
           <div className="container mx-auto px-4 flex flex-col sm:flex-row items-center justify-center sm:space-x-4">
             <div className="flex items-center">
@@ -258,10 +258,10 @@ export default function Hero() {
         {/* Mobile First Approach - Image below the text on Mobile */}
         <div className="block md:hidden relative w-full h-[300px] overflow-hidden">
           <Image 
-            src="/assets/images/hero/home-hero-new-2.webp" 
-            alt="Wasgeurtje Hero"
+            src="/assets/images/hero/vrouw.webp" 
+            alt="Vrouw ruikt geurige wasstrips - Wasgeurtje Hero"
             className="object-cover"
-            objectPosition="115% 50%"
+            objectPosition="center 30%"
             fill
             priority
             sizes="(max-width: 768px) 100vw, 50vw"
@@ -269,11 +269,11 @@ export default function Hero() {
         </div>
 
         {/* Desktop Layout */}
-        <div className="hidden md:grid md:grid-cols-2">
+        <div className="hidden md:grid md:grid-cols-2 relative">
           {/* Left Column - Gold Background with Text */}
-          <div className="bg-yellow-400 p-8 md:p-12 lg:p-16 flex flex-col justify-center relative z-10">
+          <div className="bg-gradient-to-r from-yellow-400 to-[#dab94e] p-8 md:p-12 lg:p-16 flex flex-col justify-center relative z-10 shadow-xl">
             {/* Star Rating */}
-            <div className="bg-white rounded-full px-4 py-1.5 inline-flex items-center w-fit mb-6">
+            <div className="bg-white rounded-full px-4 py-1.5 inline-flex items-center w-fit mb-6 relative z-20">
               <div className="flex text-yellow-400 mr-2">
                 <span>★</span>
                 <span>★</span>
@@ -285,18 +285,18 @@ export default function Hero() {
             </div>
             
             {/* Heading */}
-            <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
+            <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-4 relative z-20">
               <span className="block">Boost Uw Omzet</span> 
               <span className="block">Met Premium Wasgeuren</span>
             </h1>
             
             {/* Subheading */}
-            <p className="text-lg text-gray-800 mb-6">
+            <p className="text-lg text-gray-800 mb-6 relative z-20">
               <span className="font-semibold">150+ succesvolle retailers</span> verkopen al onze premium wasgeuren. Meld u nu aan en ontvang een <span className="bg-black text-white px-1">gratis proefpakket!</span>
             </p>
             
             {/* Interactive Promo Banners - Desktop */}
-            <div className={`flex flex-col gap-3 mb-6 transition-all duration-700 ${showPromo ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+            <div className={`flex flex-col gap-3 mb-6 transition-all duration-700 relative z-20 ${showPromo ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
               {/* NEW: Wasstrips Exclusive Promo for Desktop */}
               <div className="bg-gradient-to-r from-cyan-50 to-white p-3 rounded-lg border-l-4 border-cyan-500 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
                 <div className="absolute top-0 right-0 bg-red-600 text-white px-2 py-0.5 font-semibold">
@@ -339,7 +339,7 @@ export default function Hero() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
                     </svg>
                   </div>
-            <div>
+                  <div>
                     <span className="text-base text-gray-800 font-semibold">Tot 60% marge op elk product</span>
                     <div className="text-sm text-gray-700">Exclusieve B2B-prijzen voor retailpartners</div>
                   </div>
@@ -348,7 +348,7 @@ export default function Hero() {
             </div>
             
             {/* Email Form for Quick Registration - Desktop */}
-            <form onSubmit={handleSubmit} className="mb-5 max-w-md">
+            <form onSubmit={handleSubmit} className="mb-5 max-w-md relative z-20">
               <div className="relative">
                 <input
                   ref={emailInputRef}
@@ -378,7 +378,7 @@ export default function Hero() {
             </form>
             
             {/* Featured Retailer Quote - Desktop (placed prominently before availability counter) */}
-            <div className="mb-5 bg-yellow-100 rounded-lg p-4 border-l-4 border-yellow-400 relative overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+            <div className="mb-5 bg-yellow-100 rounded-lg p-4 border-l-4 border-yellow-400 relative overflow-hidden shadow-sm hover:shadow-md transition-shadow z-20">
               <div className="absolute top-0 right-0 w-24 h-24 bg-yellow-300 rounded-full transform translate-x-8 -translate-y-8 opacity-20"></div>
               <div className="flex items-start">
                 <div className="flex-shrink-0 mt-1">
@@ -396,7 +396,7 @@ export default function Hero() {
             </div>
             
             {/* Limited Availability and Social Proof - Desktop */}
-            <div className={`flex flex-col md:flex-row items-start transition-all duration-1000 ${registrationsToday > 0 ? 'opacity-100' : 'opacity-0'}`}>
+            <div className={`flex flex-col md:flex-row items-start transition-all duration-1000 relative z-20 ${registrationsToday > 0 ? 'opacity-100' : 'opacity-0'}`}>
               {/* Limited Availability Info */}
               <div className="flex-1 mb-3 md:mb-0">
                 <div className="flex items-center gap-4 mb-1.5">
@@ -431,53 +431,25 @@ export default function Hero() {
           </div>
           
           {/* Right Column - Product Image */}
-          <div className="bg-gray-100 relative overflow-hidden">
+          <div className="bg-gradient-to-br from-yellow-100 via-orange-80 to-amber-100 relative overflow-hidden">
             <div className="h-full w-full">
               <div className="relative h-full w-full min-h-[550px]">
+                
+                {/* Naadloze gradient overlay */}
+                <div className="absolute inset-y-0 left-0 z-10 pointer-events-none w-[60%]">
+                  <div className="w-full h-full bg-gradient-to-r from-[#dab94e] via-[#dab94e]/70 to-transparent" />
+                </div>
+
+                {/* Afbeelding van de vrouw */}
                 <Image 
-                  src="/assets/images/hero/home-hero-new-2.webp" 
-                  alt="Wasgeurtje Hero"
-                  className="object-cover scale-[1.2]"
-                  objectPosition="95% 35%"
+                  src="/assets/images/hero/vrouw.webp" 
+                  alt="Vrouw ruikt geurige wasstrips - Wasgeurtje Hero"
+                  className="object-cover scale-[1.1]"
+                  objectPosition="center 25%"
                   fill
                   priority
                   sizes="(max-width: 768px) 100vw, 50vw"
                 />
-                
-                {/* Overlay Markers showing retailers on map */}
-                <div className="absolute inset-0">
-                  {/* Example Retailer Markers (positioned using percentages) */}
-                  <div className="absolute top-[25%] left-[35%]">
-                    <div className="relative">
-                      <div className="animate-ping-slow absolute h-4 w-4 rounded-full bg-yellow-400 opacity-75"></div>
-                      <div className="relative h-2 w-2 rounded-full bg-yellow-500"></div>
-                    </div>
-                  </div>
-                  <div className="absolute top-[45%] left-[55%]">
-                    <div className="relative">
-                      <div className="animate-ping-slow absolute h-4 w-4 rounded-full bg-yellow-400 opacity-75"></div>
-                      <div className="relative h-2 w-2 rounded-full bg-yellow-500"></div>
-                    </div>
-                  </div>
-                  <div className="absolute top-[65%] left-[30%]">
-                    <div className="relative">
-                      <div className="animate-ping-slow absolute h-4 w-4 rounded-full bg-yellow-400 opacity-75"></div>
-                      <div className="relative h-2 w-2 rounded-full bg-yellow-500"></div>
-                    </div>
-                  </div>
-                  <div className="absolute top-[35%] left-[70%]">
-                    <div className="relative">
-                      <div className="animate-ping-slow absolute h-4 w-4 rounded-full bg-yellow-400 opacity-75"></div>
-                      <div className="relative h-2 w-2 rounded-full bg-yellow-500"></div>
-                    </div>
-                  </div>
-                  <div className="absolute top-[55%] left-[45%]">
-                    <div className="relative">
-                      <div className="animate-ping-slow absolute h-4 w-4 rounded-full bg-yellow-400 opacity-75"></div>
-                      <div className="relative h-2 w-2 rounded-full bg-yellow-500"></div>
-                    </div>
-                  </div>
-                </div>
                 
                 {/* NEW Badge Overlay */}
                 <div className="absolute top-6 right-6 bg-yellow-500 text-black font-bold py-1.5 px-5 rounded-full transform rotate-12 shadow-lg">

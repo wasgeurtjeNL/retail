@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { getWasstripsOrdersForRetailer, Order as SupabaseOrder } from '@/lib/supabase';
+import { getAllOrdersForRetailer, Order as SupabaseOrder } from '@/lib/supabase';
 
 // Interface voor Wasstrips applicaties
 interface WasstripsApplication {
@@ -22,17 +22,178 @@ interface WasstripsApplication {
   tracking_code?: string;
 }
 
+// Helper functie om betaalmethode display info te bepalen
+const getPaymentMethodDisplayInfo = (order: SupabaseOrder, stripePaymentMethods: Record<string, any> = {}) => {
+  // Voor wasstrips orders
+  if (order.metadata?.order_type === 'wasstrips') {
+    const paymentMethodSelected = order.metadata?.payment_method_selected;
+    if (paymentMethodSelected === 'direct') {
+      return {
+        name: 'Directe betaling',
+        description: 'Via Stripe',
+        icon: '💳',
+        color: 'from-green-50 to-green-100 border-green-200'
+      };
+    } else if (paymentMethodSelected === 'invoice') {
+      return {
+        name: 'Betaling op factuur',
+        description: 'Betalen binnen 14 dagen',
+        icon: '📄',
+        color: 'from-amber-50 to-amber-100 border-amber-200'
+      };
+    }
+    // Default voor wasstrips zonder geselecteerde betaalmethode
+    return {
+      name: 'Nog niet gekozen',
+      description: 'Betaalmethode wordt later gekozen',
+      icon: '⏳',
+      color: 'from-gray-50 to-gray-100 border-gray-200'
+    };
+  }
+  
+  // Voor reguliere orders
+  if (order.payment_method === 'invoice') {
+    return {
+      name: 'Betaling op factuur',
+      description: 'Betalen binnen 14 dagen',
+      icon: '📄',
+      color: 'from-amber-50 to-amber-100 border-amber-200'
+    };
+  }
+  
+  // Voor Stripe betalingen - gebruik echte betaalmethode data indien beschikbaar
+  if (order.stripe_session_id) {
+    const stripeData = stripePaymentMethods[order.stripe_session_id];
+    if (stripeData) {
+      const paymentMethod = stripeData.payment_method;
+      const details = stripeData.payment_method_details;
+      
+      switch (paymentMethod) {
+        case 'ideal':
+          return {
+            name: details?.bank ? `iDEAL (${details.bank})` : 'iDEAL',
+            description: 'Via iDEAL internetbankieren',
+            icon: '🏦',
+            color: 'from-blue-50 to-blue-100 border-blue-200'
+          };
+        case 'bancontact':
+          return {
+            name: 'Bancontact',
+            description: 'Via Bancontact',
+            icon: '💳',
+            color: 'from-purple-50 to-purple-100 border-purple-200'
+          };
+        case 'credit_card':
+          return {
+            name: details?.brand && details?.last4 ? `${details.brand.toUpperCase()} **** ${details.last4}` : 'Creditcard',
+            description: 'Via Stripe creditcard',
+            icon: '💳',
+            color: 'from-green-50 to-green-100 border-green-200'
+          };
+        default:
+          return {
+            name: 'Directe betaling',
+            description: 'Via online betaling',
+            icon: '💳',
+            color: 'from-green-50 to-green-100 border-green-200'
+          };
+      }
+    }
+    
+    return {
+      name: 'Directe betaling',
+      description: 'Via online betaling',
+      icon: '💳',
+      color: 'from-green-50 to-green-100 border-green-200'
+    };
+  }
+  
+  // Default fallback
+  return {
+    name: 'Onbekend',
+    description: 'Betaalmethode niet bekend',
+    icon: '❓',
+    color: 'from-gray-50 to-gray-100 border-gray-200'
+  };
+};
+
 // Professionele Order Status Component met animaties
 const OrderStatusBadge = ({ order }: { order: SupabaseOrder }) => {
   const getStatusInfo = () => {
-    // Synchroniseer met admin status mapping
+    // Check voor Wasstrips orders (hebben metadata met current_step)
+    const currentStep = order.metadata?.current_step;
+    const stepDescription = order.metadata?.step_description;
+    
+    if (currentStep) {
+      // Wasstrips specifieke stappen
+      switch (currentStep) {
+        case 'deposit':
+          return { 
+            text: 'Aanbetaling (€30)', 
+            color: 'bg-gradient-to-r from-amber-100 to-amber-200 text-amber-800 border-amber-300', 
+            icon: '💳', 
+            urgent: true,
+            pulse: true,
+            description: stepDescription || 'Aanbetaling te betalen'
+          };
+        case 'remaining':
+          return { 
+            text: 'Restbedrag (€270)', 
+            color: 'bg-gradient-to-r from-orange-100 to-orange-200 text-orange-800 border-orange-300', 
+            icon: '💰', 
+            urgent: true,
+            pulse: true,
+            description: stepDescription || 'Restbedrag te betalen'
+          };
+        case 'waiting_for_admin':
+          return { 
+            text: 'Aanbetaling ✓', 
+            color: 'bg-gradient-to-r from-green-100 to-green-200 text-green-800 border-green-300', 
+            icon: '⏳', 
+            urgent: false,
+            pulse: true,
+            description: stepDescription || 'Aanbetaling ontvangen - Bestelling wordt voorbereid'
+          };
+        case 'delivery':
+          return { 
+            text: 'Kies betaalwijze', 
+            color: 'bg-gradient-to-r from-purple-100 to-purple-200 text-purple-800 border-purple-300', 
+            icon: '⚙️', 
+            urgent: true,
+            pulse: true,
+            description: stepDescription || 'Kies leveringsoptie'
+          };
+        case 'completed':
+          if (order.fulfillment_status === 'shipped') {
+            return { 
+              text: 'Verzonden', 
+              color: 'bg-gradient-to-r from-emerald-100 to-emerald-200 text-emerald-800 border-emerald-300', 
+              icon: '🚚', 
+              urgent: false,
+              pulse: false,
+              description: stepDescription || 'Bestelling verzonden'
+            };
+          }
+          return { 
+            text: 'Wordt voorbereid', 
+            color: 'bg-gradient-to-r from-blue-100 to-blue-200 text-blue-800 border-blue-300', 
+            icon: '⚡', 
+            urgent: false,
+            pulse: true,
+            description: stepDescription || 'Bestelling wordt voorbereid'
+          };
+      }
+    }
+    
+    // Standaard order logica (voor non-Wasstrips orders)
     if (order.payment_status === 'pending') {
       return { 
         text: 'Betaling open', 
         color: 'bg-gradient-to-r from-amber-100 to-amber-200 text-amber-800 border-amber-300', 
         icon: '💳', 
         urgent: true,
-        pulse: true 
+        pulse: true,
+        description: 'Betaling in afwachting'
       };
     }
     if (order.payment_status === 'paid' && order.fulfillment_status === 'processing') {
@@ -41,7 +202,8 @@ const OrderStatusBadge = ({ order }: { order: SupabaseOrder }) => {
         color: 'bg-gradient-to-r from-blue-100 to-blue-200 text-blue-800 border-blue-300', 
         icon: '⚡', 
         urgent: false,
-        pulse: true 
+        pulse: true,
+        description: 'Bestelling wordt voorbereid'
       };
     }
     if (order.fulfillment_status === 'shipped') {
@@ -50,7 +212,8 @@ const OrderStatusBadge = ({ order }: { order: SupabaseOrder }) => {
         color: 'bg-gradient-to-r from-emerald-100 to-emerald-200 text-emerald-800 border-emerald-300', 
         icon: '🚚', 
         urgent: false,
-        pulse: false 
+        pulse: false,
+        description: 'Bestelling onderweg'
       };
     }
     if (order.fulfillment_status === 'delivered') {
@@ -59,7 +222,8 @@ const OrderStatusBadge = ({ order }: { order: SupabaseOrder }) => {
         color: 'bg-gradient-to-r from-green-100 to-green-200 text-green-800 border-green-300', 
         icon: '✅', 
         urgent: false,
-        pulse: false 
+        pulse: false,
+        description: 'Bestelling afgeleverd'
       };
     }
     return { 
@@ -67,19 +231,27 @@ const OrderStatusBadge = ({ order }: { order: SupabaseOrder }) => {
       color: 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-800 border-gray-300', 
       icon: '📋', 
       urgent: false,
-      pulse: false 
+      pulse: false,
+      description: 'Bestelling in behandeling'
     };
   };
 
   const status = getStatusInfo();
 
   return (
-    <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border ${status.color} ${
-      status.urgent ? 'ring-2 ring-amber-200 shadow-lg' : 'shadow-sm'
-    } ${status.pulse ? 'animate-pulse' : ''} transition-all duration-300 hover:scale-105`}>
-      <span className="mr-1.5 text-sm">{status.icon}</span>
-      {status.text}
-    </span>
+    <div className="flex flex-col gap-1">
+      <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border ${status.color} ${
+        status.urgent ? 'ring-2 ring-amber-200 shadow-lg' : 'shadow-sm'
+      } ${status.pulse ? 'animate-pulse' : ''} transition-all duration-300 hover:scale-105`}>
+        <span className="mr-1.5 text-sm">{status.icon}</span>
+        {status.text}
+      </span>
+      {status.description && (
+        <span className="text-xs text-gray-600 px-2">
+          {status.description}
+        </span>
+      )}
+    </div>
   );
 };
 
@@ -156,17 +328,91 @@ const CompactTrackingInfo = ({ order }: { order: SupabaseOrder }) => {
 };
 
 // Uitgebreide Order Detail Modal met professionele timeline
-const OrderDetailModalWithTimeline = ({ order, onClose, onPayNow }: {
+const OrderDetailModalWithTimeline = ({ order, onClose, onPayNow, stripePaymentMethods = {} }: {
   order: SupabaseOrder;
   onClose: () => void;
   onPayNow: (order: SupabaseOrder) => void;
+  stripePaymentMethods?: Record<string, any>;
 }) => {
   const getStatusSteps = () => {
+    const currentStep = order.metadata?.current_step;
+    const depositStatus = order.metadata?.deposit_status;
+    const remainingPaymentStatus = order.metadata?.remaining_payment_status;
+    const paymentOptionsSent = order.metadata?.payment_options_sent;
+    const paymentMethodSelected = order.metadata?.payment_method_selected;
+    
+    // Wasstrips-specifieke timeline
+    if (currentStep) {
+      const steps = [
+        {
+          id: 'order_placed',
+          title: 'Bestelling Geplaatst',
+          description: 'Uw wasstrips aanmelding is ontvangen en goedgekeurd',
+          completed: true,
+          current: false,
+          icon: '📋',
+          color: 'text-green-600 bg-green-100'
+        },
+        {
+          id: 'deposit_payment',
+          title: 'Stap 1: Aanbetaling (€30)',
+          description: depositStatus === 'paid' ? 'Aanbetaling succesvol ontvangen' : 'Betaal de aanbetaling om uw bestelling te activeren',
+          completed: depositStatus === 'paid',
+          current: currentStep === 'deposit',
+          icon: '💳',
+          color: depositStatus === 'paid' ? 'text-green-600 bg-green-100' : 'text-amber-600 bg-amber-100'
+        },
+        {
+          id: 'remaining_payment',
+          title: 'Stap 2: Restbedrag (€270)',
+          description: remainingPaymentStatus === 'paid' 
+            ? 'Restbedrag succesvol betaald' 
+            : 'Betaal het restbedrag zodra wij aangeven dat uw bestelling binnen is',
+          completed: remainingPaymentStatus === 'paid',
+          current: currentStep === 'remaining',
+          icon: '💰',
+          color: remainingPaymentStatus === 'paid' ? 'text-green-600 bg-green-100' : 'text-orange-600 bg-orange-100'
+        },
+        {
+          id: 'delivery_choice',
+          title: 'Stap 3: Kies Betaalwijze',
+          description: paymentMethodSelected 
+            ? `Betaalwijze gekozen: ${paymentMethodSelected === 'direct' ? 'Direct betalen' : 'Betalen op rekening'}`
+            : 'Kies hoe u wilt betalen voor levering: direct of op rekening',
+          completed: !!paymentMethodSelected,
+          current: currentStep === 'delivery',
+          icon: '⚙️',
+          color: paymentMethodSelected ? 'text-green-600 bg-green-100' : 'text-purple-600 bg-purple-100'
+        },
+        {
+          id: 'preparation',
+          title: 'Bestelling Voorbereiden',
+          description: 'Wasgeurtje bereidt uw zending zorgvuldig voor',
+          completed: order.fulfillment_status === 'shipped' || order.fulfillment_status === 'delivered',
+          current: currentStep === 'completed' && order.fulfillment_status === 'processing',
+          icon: '⚡',
+          color: (order.fulfillment_status === 'shipped' || order.fulfillment_status === 'delivered') ? 'text-green-600 bg-green-100' : 'text-blue-600 bg-blue-100'
+        },
+        {
+          id: 'shipped',
+          title: 'Verzonden',
+          description: order.tracking_code ? `Uw pakket is onderweg! Track & Trace: ${order.tracking_code}` : 'Uw zending is onderweg naar u',
+          completed: order.fulfillment_status === 'shipped' || order.fulfillment_status === 'delivered',
+          current: order.fulfillment_status === 'shipped',
+          icon: '🚚',
+          color: (order.fulfillment_status === 'shipped' || order.fulfillment_status === 'delivered') ? 'text-green-600 bg-green-100' : 'text-gray-400 bg-gray-100'
+        }
+      ];
+      
+      return steps;
+    }
+
+    // Standaard timeline voor gewone orders
     const steps = [
       {
         id: 'order_placed',
         title: 'Bestelling Geplaatst',
-        description: 'Uw wasstrips bestelling is ontvangen en geregistreerd',
+        description: 'Uw bestelling is ontvangen en geregistreerd',
         completed: true,
         current: false,
         icon: '📋',
@@ -202,7 +448,9 @@ const OrderDetailModalWithTimeline = ({ order, onClose, onPayNow }: {
       {
         id: 'delivered',
         title: 'Afgeleverd',
-        description: 'Uw wasstrips pakket is succesvol afgeleverd',
+        description: order.metadata?.order_type === 'wasstrips' 
+          ? 'Uw wasstrips pakket is succesvol afgeleverd' 
+          : 'Uw bestelling is succesvol afgeleverd',
         completed: order.fulfillment_status === 'delivered',
         current: false,
         icon: '✅',
@@ -236,7 +484,7 @@ const OrderDetailModalWithTimeline = ({ order, onClose, onPayNow }: {
 
         <div className="p-6">
           {/* Order Info Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-xl border">
               <p className="text-sm text-gray-600 mb-1">Besteldatum</p>
               <p className="font-semibold text-gray-900">
@@ -255,6 +503,21 @@ const OrderDetailModalWithTimeline = ({ order, onClose, onPayNow }: {
               <p className="text-sm text-gray-600 mb-1">Status</p>
               <OrderStatusBadge order={order} />
             </div>
+            {(() => {
+              const paymentInfo = getPaymentMethodDisplayInfo(order, stripePaymentMethods);
+              return (
+                <div className={`bg-gradient-to-br ${paymentInfo.color} p-4 rounded-xl border`}>
+                  <p className="text-sm text-gray-600 mb-1">Betaalmethode</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{paymentInfo.icon}</span>
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">{paymentInfo.name}</p>
+                      <p className="text-xs text-gray-600">{paymentInfo.description}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Professional Timeline */}
@@ -341,13 +604,20 @@ const OrderDetailModalWithTimeline = ({ order, onClose, onPayNow }: {
             >
               Sluiten
             </button>
-            {order.payment_status === 'pending' && (
+            {/* Toon actie knop voor pending betalingen of delivery stap keuze */}
+            {(order.payment_status === 'pending' || order.metadata?.current_step === 'delivery') && (
               <button
                 onClick={() => onPayNow(order)}
-                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-medium shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center gap-2"
+                className={`px-6 py-3 text-white rounded-lg transition-all duration-200 font-medium shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center gap-2 ${
+                  order.metadata?.current_step === 'delivery' 
+                    ? 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800'
+                    : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800'
+                }`}
               >
-                <span className="text-lg">💳</span>
-                Betaal Nu
+                <span className="text-lg">
+                  {order.metadata?.current_step === 'delivery' ? '⚙️' : '💳'}
+                </span>
+                {order.metadata?.current_step === 'delivery' ? 'Kies Betaalwijze' : 'Betaal Nu'}
               </button>
             )}
           </div>
@@ -358,11 +628,12 @@ const OrderDetailModalWithTimeline = ({ order, onClose, onPayNow }: {
 };
 
 // Professionele Order List Item met hover effecten
-const OrderListItem = ({ order, onPayNow, onViewDetails, onDownloadInvoice }: {
+const OrderListItem = ({ order, onPayNow, onViewDetails, onDownloadInvoice, stripePaymentMethods = {} }: {
   order: SupabaseOrder;
   onPayNow: (order: SupabaseOrder) => void;
   onViewDetails: (order: SupabaseOrder) => void;
   onDownloadInvoice: (order: SupabaseOrder) => void;
+  stripePaymentMethods?: Record<string, any>;
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   
@@ -391,10 +662,100 @@ const OrderListItem = ({ order, onPayNow, onViewDetails, onDownloadInvoice }: {
           <p className="font-bold text-xl text-gray-900">€{order.total_amount.toFixed(2)}</p>
           <p className="text-xs text-gray-500 flex items-center justify-end gap-1">
             <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
-            {order.items?.reduce((total, item) => total + item.quantity, 0) || 1} item(s)
+            {order.metadata?.current_step ? (
+              order.metadata.current_step === 'deposit' ? `€${order.metadata.current_payment_amount || 30} nu te betalen` :
+              order.metadata.current_step === 'waiting_for_admin' ? 'Aanbetaling ontvangen ✓' :
+              order.metadata.current_step === 'remaining' ? `€${order.metadata.current_payment_amount || 270} nu te betalen` :
+              order.metadata.current_step === 'delivery' ? 'Kies betaalwijze' :
+              'Volledig afgehandeld'
+            ) : (
+              `${order.items?.reduce((total, item) => total + item.quantity, 0) || 1} item(s)`
+            )}
           </p>
         </div>
       </div>
+
+      {/* Wasstrips Product Info */}
+      {order.metadata?.current_step && (
+        <div className="mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+              <span className="text-white text-xl">🧴</span>
+            </div>
+            <div className="flex-1">
+              <h4 className="font-bold text-gray-900 text-lg">Wasstrips Starterpakket</h4>
+              <p className="text-sm text-gray-600">Exclusieve wasstrips collectie voor retailers</p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-gray-500">Totale waarde</p>
+              <p className="font-bold text-lg text-gray-900">€300.00</p>
+            </div>
+          </div>
+          
+          {/* Betalingsstappen Info */}
+          <div className="bg-white rounded-lg p-3 border border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">Betalingsstappen:</span>
+              <span className="text-xs text-gray-500">
+                {order.metadata.current_step === 'deposit' ? 'Stap 1 van 3' : 
+                 order.metadata.current_step === 'waiting_for_admin' ? 'Stap 1 ✓ - Wachten op stap 2' : 
+                 order.metadata.current_step === 'remaining' ? 'Stap 2 van 3' : 
+                 order.metadata.current_step === 'delivery' ? 'Stap 3 van 3' : 'Afgerond'}
+              </span>
+            </div>
+            
+            <div className="space-y-2">
+              {/* Stap 1 */}
+              <div className="flex items-center gap-2">
+                <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                  order.metadata.deposit_status === 'paid' ? 'bg-green-100 text-green-600' : 
+                  order.metadata.current_step === 'deposit' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'
+                }`}>
+                  {order.metadata.deposit_status === 'paid' ? '✓' : '1'}
+                </div>
+                <span className={`text-sm ${
+                  order.metadata.deposit_status === 'paid' ? 'text-green-600 font-medium' : 
+                  order.metadata.current_step === 'deposit' ? 'text-blue-600 font-medium' : 'text-gray-400'
+                }`}>
+                  Aanbetaling €30 {order.metadata.deposit_status === 'paid' ? '(Betaald)' : ''}
+                </span>
+              </div>
+              
+              {/* Stap 2 */}
+              <div className="flex items-center gap-2">
+                <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                  order.metadata.remaining_payment_status === 'paid' ? 'bg-green-100 text-green-600' : 
+                  order.metadata.current_step === 'remaining' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'
+                }`}>
+                  {order.metadata.remaining_payment_status === 'paid' ? '✓' : '2'}
+                </div>
+                <span className={`text-sm ${
+                  order.metadata.remaining_payment_status === 'paid' ? 'text-green-600 font-medium' : 
+                  order.metadata.current_step === 'remaining' ? 'text-blue-600 font-medium' : 'text-gray-400'
+                }`}>
+                  Restbedrag €270 {order.metadata.remaining_payment_status === 'paid' ? '(Betaald)' : ''}
+                </span>
+              </div>
+              
+              {/* Stap 3 */}
+              <div className="flex items-center gap-2">
+                <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                  order.metadata.payment_method_selected ? 'bg-green-100 text-green-600' : 
+                  order.metadata.current_step === 'delivery' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'
+                }`}>
+                  {order.metadata.payment_method_selected ? '✓' : '3'}
+                </div>
+                <span className={`text-sm ${
+                  order.metadata.payment_method_selected ? 'text-green-600 font-medium' : 
+                  order.metadata.current_step === 'delivery' ? 'text-blue-600 font-medium' : 'text-gray-400'
+                }`}>
+                  Betaalwijze kiezen {order.metadata.payment_method_selected ? `(${order.metadata.payment_method_selected === 'direct' ? 'Direct' : 'Factuur'})` : ''}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Status Badge */}
       <div className="mb-4">
@@ -406,23 +767,81 @@ const OrderListItem = ({ order, onPayNow, onViewDetails, onDownloadInvoice }: {
 
       {/* Action Buttons */}
       <div className="flex gap-3 mt-4">
-        {order.payment_status === 'pending' ? (
-          <button
-            onClick={() => onPayNow(order)}
-            className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-medium shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
-          >
-            <span className="text-base">💳</span>
-            Betaal Nu
-          </button>
-        ) : (
-          <button
-            onClick={() => onViewDetails(order)}
-            className="flex-1 px-4 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white text-sm rounded-lg hover:from-gray-700 hover:to-gray-800 transition-all duration-200 font-medium shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
-          >
-            <span className="text-base">👁️</span>
-            Details
-          </button>
-        )}
+        {(() => {
+          const currentStep = order.metadata?.current_step;
+          
+          // Voor Wasstrips orders met specifieke stappen
+          if (currentStep) {
+            if (currentStep === 'deposit' || currentStep === 'remaining') {
+              // Stap 1 & 2: Toon betaalknop
+              return (
+                <button
+                  onClick={() => onPayNow(order)}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-medium shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
+                >
+                  <span className="text-base">💳</span>
+                  {currentStep === 'deposit' ? 'Betaal Aanbetaling' : 'Betaal Restbedrag'}
+                </button>
+              );
+            } else if (currentStep === 'waiting_for_admin') {
+              // Tussentoestand: Toon wachtmelding
+              return (
+                <button
+                  onClick={() => onViewDetails(order)}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white text-sm rounded-lg hover:from-green-700 hover:to-green-800 transition-all duration-200 font-medium shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
+                >
+                  <span className="text-base">⏳</span>
+                  Bestelling Wordt Voorbereid
+                </button>
+              );
+            } else if (currentStep === 'delivery') {
+              // Stap 3: Toon keuze knop - gebruik onPayNow voor correcte navigatie
+              return (
+                <button
+                  onClick={() => onPayNow(order)}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white text-sm rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all duration-200 font-medium shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
+                >
+                  <span className="text-base">⚙️</span>
+                  Kies Betaalwijze
+                </button>
+              );
+            } else {
+              // Stap 4+: Toon details knop
+              return (
+                <button
+                  onClick={() => onViewDetails(order)}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white text-sm rounded-lg hover:from-gray-700 hover:to-gray-800 transition-all duration-200 font-medium shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
+                >
+                  <span className="text-base">👁️</span>
+                  Details
+                </button>
+              );
+            }
+          }
+          
+          // Voor gewone orders: oorspronkelijke logica
+          if (order.payment_status === 'pending') {
+            return (
+              <button
+                onClick={() => onPayNow(order)}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-medium shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
+              >
+                <span className="text-base">💳</span>
+                Betaal Nu
+              </button>
+            );
+          } else {
+            return (
+              <button
+                onClick={() => onViewDetails(order)}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white text-sm rounded-lg hover:from-gray-700 hover:to-gray-800 transition-all duration-200 font-medium shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
+              >
+                <span className="text-base">👁️</span>
+                Details
+              </button>
+            );
+          }
+        })()}
         
         <button
           onClick={() => onDownloadInvoice(order)}
@@ -443,11 +862,51 @@ export default function OrdersPage() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState<SupabaseOrder | null>(null);
   const [isOrderDetailOpen, setIsOrderDetailOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'all' | 'wasstrips'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'wasstrips' | 'catalog'>('all');
+  const [stripePaymentMethods, setStripePaymentMethods] = useState<Record<string, any>>({});
 
   // Mock functie voor backward compatibility
   const loadWasstripsApplications = useCallback(() => {
     console.log('[Frontend] loadWasstripsApplications called (mock function)');
+  }, []);
+
+  // Functie om Stripe payment methods op te halen voor orders met session IDs
+  const loadStripePaymentMethods = useCallback(async (orders: SupabaseOrder[]) => {
+    const ordersWithStripeSession = orders.filter(order => order.stripe_session_id);
+    
+    if (ordersWithStripeSession.length === 0) {
+      return;
+    }
+    
+    console.log('[Frontend] Loading Stripe payment methods for', ordersWithStripeSession.length, 'orders');
+    
+    const paymentMethodPromises = ordersWithStripeSession.map(async (order) => {
+      try {
+        const response = await fetch(`/api/stripe/get-payment-method?session_id=${order.stripe_session_id}`);
+        if (response.ok) {
+          const data = await response.json();
+          return {
+            sessionId: order.stripe_session_id,
+            data: data
+          };
+        }
+      } catch (error) {
+        console.warn('[Frontend] Failed to load payment method for session:', order.stripe_session_id, error);
+      }
+      return null;
+    });
+    
+    const results = await Promise.all(paymentMethodPromises);
+    const paymentMethodsMap: Record<string, any> = {};
+    
+    results.forEach(result => {
+      if (result && result.sessionId) {
+        paymentMethodsMap[result.sessionId] = result.data;
+      }
+    });
+    
+    console.log('[Frontend] Loaded payment methods for', Object.keys(paymentMethodsMap).length, 'orders');
+    setStripePaymentMethods(paymentMethodsMap);
   }, []);
 
   // Laad echte orders uit Supabase
@@ -468,28 +927,33 @@ export default function OrdersPage() {
       const timestamp = Date.now();
       console.log('[Frontend] Cache buster timestamp:', timestamp);
       
-      const result = await getWasstripsOrdersForRetailer(user.email);
-      console.log('[Frontend] Found wasstrips orders result:', result);
+      const result = await getAllOrdersForRetailer(user.email);
+      console.log('[Frontend] Found all orders result:', result);
       
       // Extract orders from result
-      const wasstripsOrders = result.orders || [];
-      console.log('[Frontend] Extracted orders:', wasstripsOrders);
+      const allOrders = result.orders || [];
+      console.log('[Frontend] Extracted orders:', allOrders);
       
       // Debug: log each order's total_amount and payment_status
-      wasstripsOrders.forEach((order, index) => {
+      allOrders.forEach((order: SupabaseOrder, index: number) => {
         console.log(`[Frontend] Order ${index + 1} (${order.order_number}):`, {
           total_amount: order.total_amount,
           payment_status: order.payment_status,
           fulfillment_status: order.fulfillment_status,
           tracking_code: order.tracking_code,
-          metadata: order.metadata
+          metadata: order.metadata,
+          order_type: order.metadata?.order_type || 'wasstrips'
         });
       });
       
       // Zet orders in state
-      setOrders(wasstripsOrders);
+      setOrders(allOrders);
+      
+      // Laad Stripe payment methods voor orders met session IDs
+      await loadStripePaymentMethods(allOrders);
+      
       setIsLoading(false);
-    } catch (error) {
+        } catch (error) {
       console.error('[Frontend] Error loading wasstrips orders:', error);
       // Fallback naar lege array bij fout
       setOrders([]);
@@ -526,8 +990,25 @@ export default function OrdersPage() {
     setTimeout(() => setIsLoading(false), 500);
   };
 
-  // Filter orders based on selected filter
+  // Functie om wasstrips orders te identificeren
+  const isWasstripsOrder = (order: SupabaseOrder) => {
+    // Wasstrips orders hebben een wasstrips_application_id in metadata
+    return order.metadata?.wasstrips_application_id || 
+           order.order_number?.startsWith('WS-') || 
+           order.metadata?.order_type === 'wasstrips';
+  };
+
+  // Filter orders based on selected tab and filter
   const filteredOrders = orders.filter(order => {
+    // Filter eerst op tab
+    if (activeTab === 'wasstrips' && !isWasstripsOrder(order)) {
+      return false;
+    }
+    if (activeTab === 'catalog' && isWasstripsOrder(order)) {
+      return false;
+    }
+    
+    // Dan filter op status
     if (filterStatus === 'all') return true;
     if (filterStatus === 'pending') return order.payment_status === 'pending';
     if (filterStatus === 'paid') return order.payment_status === 'paid';
@@ -535,10 +1016,66 @@ export default function OrdersPage() {
     return true;
   });
 
+  // Bereken counts voor tabs
+  const wasstripsCount = orders.filter(isWasstripsOrder).length;
+  const catalogCount = orders.length - wasstripsCount;
+
   // Betaalfunctie voor openstaande bestellingen
   const handlePayNow = async (order: SupabaseOrder) => {
     try {
       console.log('[Frontend] Initiating payment for order:', order.id, 'amount:', order.total_amount);
+      
+      // Check voor Wasstrips orders
+      const currentStep = order.metadata?.current_step;
+      const wasstripsApplicationId = order.metadata?.wasstrips_application_id;
+      
+      if (currentStep && wasstripsApplicationId) {
+        console.log('[Frontend] Handling Wasstrips payment - Step:', currentStep);
+        
+        // Voor Wasstrips stap 3 (delivery): redirecteer naar betaalwijze keuze
+        if (currentStep === 'delivery') {
+          console.log('[Frontend] Redirecting to payment options for delivery step');
+          window.location.href = `/retailer-dashboard/payment-options/${wasstripsApplicationId}`;
+          return;
+        }
+        
+        // Voor tussentoestand (wachten op admin): geen actie mogelijk
+        if (currentStep === 'waiting_for_admin') {
+          alert('Uw aanbetaling is ontvangen! Wij bereiden uw bestelling voor en sturen u binnenkort de restbetaling.');
+          return;
+        }
+        
+        // Voor Wasstrips stappen 1 & 2: gebruik wasstrips payment endpoint
+        if (currentStep === 'deposit' || currentStep === 'remaining') {
+          const paymentType = currentStep === 'deposit' ? 'deposit' : 'remaining';
+          const paymentLinkId = currentStep === 'deposit' 
+            ? order.metadata?.deposit_payment_link 
+            : order.metadata?.remaining_payment_link;
+          
+          if (!paymentLinkId) {
+            console.error('[Frontend] No payment link found for step:', currentStep);
+            alert('Fout: Betaallink niet gevonden. Contacteer de klantenservice.');
+            return;
+          }
+          
+          console.log('[Frontend] Redirecting to wasstrips payment:', {
+            paymentType,
+            paymentLinkId,
+            amount: order.total_amount
+          });
+          
+          // Redirecteer naar de wasstrips betaalpagina
+          if (paymentType === 'deposit') {
+            window.location.href = `/payment/deposit/${paymentLinkId}`;
+          } else {
+            window.location.href = `/payment/remaining/${paymentLinkId}`;
+          }
+          return;
+        }
+      }
+      
+      // Voor gewone orders: gebruik normale checkout
+      console.log('[Frontend] Handling standard order payment');
       
       // Valideer order data
       if (!order.total_amount || order.total_amount <= 0) {
@@ -652,7 +1189,7 @@ export default function OrdersPage() {
   };
 
   if (isLoading) {
-    return (
+        return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center justify-center min-h-64">
@@ -663,13 +1200,13 @@ export default function OrdersPage() {
               </div>
               <p className="text-gray-600 font-medium">Orders laden...</p>
               <p className="text-sm text-gray-500 mt-1">Even geduld, we halen uw bestellingen op</p>
+          </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-    );
+        );
   }
-
+  
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -682,35 +1219,45 @@ export default function OrdersPage() {
               <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
               <span className="text-sm text-blue-100">Live status updates</span>
             </div>
-          </div>
-        </div>
+            </div>
+              </div>
 
         {/* Tabs en Filters met verbeterde styling */}
         <div className="mb-8">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1">
             <div className="flex justify-between items-center">
               <nav className="flex space-x-1">
-                <button
-                  onClick={() => setActiveTab('all')}
+          <button
+            onClick={() => setActiveTab('all')}
                   className={`py-3 px-6 rounded-lg font-medium text-sm transition-all duration-200 ${
-                    activeTab === 'all'
+              activeTab === 'all'
                       ? 'bg-blue-600 text-white shadow-md'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                   }`}
                 >
                   Alle Bestellingen ({orders.length})
-                </button>
-                <button
-                  onClick={() => setActiveTab('wasstrips')}
+          </button>
+          <button
+            onClick={() => setActiveTab('wasstrips')}
                   className={`py-3 px-6 rounded-lg font-medium text-sm transition-all duration-200 ${
-                    activeTab === 'wasstrips'
+              activeTab === 'wasstrips'
                       ? 'bg-blue-600 text-white shadow-md'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                   }`}
                 >
-                  Wasstrips ({orders.length})
-                </button>
-              </nav>
+                  💎 Wasstrips ({wasstripsCount})
+          </button>
+          <button
+            onClick={() => setActiveTab('catalog')}
+                  className={`py-3 px-6 rounded-lg font-medium text-sm transition-all duration-200 ${
+              activeTab === 'catalog'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
+                >
+                  📦 Catalog ({catalogCount})
+          </button>
+        </nav>
 
               {/* Status Filter met verbeterde styling */}
               <div className="flex items-center space-x-3">
@@ -727,7 +1274,7 @@ export default function OrdersPage() {
                 </select>
                 
                 {/* Refresh Button */}
-                <button
+                                <button
                   onClick={handleForceRefresh}
                   disabled={isLoading}
                   className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -748,10 +1295,10 @@ export default function OrdersPage() {
                   </svg>
                   <span className="ml-1 hidden sm:block">Ververs</span>
                 </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
         {/* Content */}
         {filteredOrders.length === 0 ? (
@@ -759,8 +1306,8 @@ export default function OrdersPage() {
             <div className="mx-auto h-32 w-32 text-gray-300 mb-6">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-full h-full">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2 2v-5m16 0h-2M4 13h2" />
-              </svg>
-            </div>
+            </svg>
+          </div>
             <h3 className="text-2xl font-bold text-gray-900 mb-3">
               {orders.length === 0 ? 'Nog geen bestellingen' : 'Geen bestellingen gevonden'}
             </h3>
@@ -782,18 +1329,19 @@ export default function OrdersPage() {
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {filteredOrders.map((order) => (
+                {filteredOrders.map((order) => (
               <OrderListItem
                 key={order.id}
                 order={order}
                 onPayNow={handlePayNow}
                 onViewDetails={handleOrderClick}
                 onDownloadInvoice={handleDownloadInvoice}
+                stripePaymentMethods={stripePaymentMethods}
               />
             ))}
-          </div>
-        )}
-
+      </div>
+      )}
+      
         {/* Order Detail Modal */}
         {isOrderDetailOpen && selectedOrder && (
           <OrderDetailModalWithTimeline
@@ -803,6 +1351,7 @@ export default function OrdersPage() {
               setSelectedOrder(null);
             }}
             onPayNow={handlePayNow}
+            stripePaymentMethods={stripePaymentMethods}
           />
         )}
       </div>

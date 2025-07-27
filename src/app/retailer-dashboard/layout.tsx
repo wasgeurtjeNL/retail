@@ -19,10 +19,15 @@ export default function RetailerDashboardLayout({
   // Controleer of we op een checkout pagina zijn
   const isCheckoutPage = pathname?.includes('/retailer-dashboard/orders/');
 
-  // Redirect niet-retailers naar login
+  // Redirect niet-retailers naar login - but give some time for auth to stabilize
   useEffect(() => {
     if (!isLoading && (!user || !isRetailer)) {
-      router.push('/login');
+      // Add a small delay to prevent race conditions with login redirects
+      const timer = setTimeout(() => {
+        router.push('/login');
+      }, 100);
+      
+      return () => clearTimeout(timer);
     }
   }, [user, isLoading, isRetailer, router]);
 

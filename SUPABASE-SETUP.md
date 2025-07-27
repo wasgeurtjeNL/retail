@@ -16,17 +16,17 @@ Maak een nieuw bestand `.env.local` in je project root (waar package.json staat)
 
 ```env
 # Supabase Configuration
-NEXT_PUBLIC_SUPABASE_URL=https://mlhrporbuhbgxrbrlpzz.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<VULL_HIER_JE_ANON_KEY_IN>
 ```
 
 **Om je anon key te vinden:**
-1. Ga naar: https://supabase.com/dashboard/project/mlhrporbuhbgxrbrlpzz/settings/api
+1. Ga naar: https://supabase.com/dashboard/project/[your-project-id]/settings/api
 2. Kopieer de **anon public** key (begint met "eyJ...")
 3. Plak deze in het .env.local bestand
 
 ### 3. Voer het Database Script uit
-1. Ga naar: https://supabase.com/dashboard/project/mlhrporbuhbgxrbrlpzz/sql/new
+1. Ga naar: https://supabase.com/dashboard/project/[your-project-id]/sql/new
 2. Kopieer de gehele inhoud van `setup-supabase.sql`
 3. Plak het in de SQL editor
 4. Klik op **Run** om alle tabellen aan te maken

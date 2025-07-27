@@ -2,7 +2,7 @@ import Stripe from 'stripe';
 import { StripeLineItem } from './stripe';
 
 // Use environment variables or locally stored key
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || 'your_stripe_secret_key';
+const STRIPE_SECRET_KEY = process.env.STRIPE_TEST_SECRET_KEY || 'your_stripe_secret_key';
 
 // Function to get a Stripe instance with the provided key
 export function getStripeInstance(secretKey?: string): Stripe {

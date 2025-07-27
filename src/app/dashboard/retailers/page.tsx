@@ -100,36 +100,27 @@ export default function RetailerManagementPage() {
       console.log(`[RETAILER APPROVAL] Starting ${status} process for retailer ${id}`);
       
       if (status === 'approved') {
-        // Stap 1: Update status direct in database
-        const { error: updateError } = await import('@/lib/supabase').then(module => 
-          module.updateRetailerStatus(id, 'approved')
-        );
+        // Stap 1: Verstuur activatiemail via notify endpoint
+        const notifyResponse = await fetch('/api/retailers/notify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            retailerId: id,
+            action: 'approve'
+          }),
+        });
         
-        if (updateError) {
-          throw new Error('Fout bij updaten van retailer status: ' + JSON.stringify(updateError));
+        if (!notifyResponse.ok) {
+          const errorData = await notifyResponse.json();
+          throw new Error(errorData.error || 'Fout bij versturen activatiemail');
         }
         
-        // Stap 2: Probeer goedkeuringsmail te versturen (optioneel)
-        try {
-          const notifyResponse = await fetch('/api/retailers/notify', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ 
-              retailerId: id, 
-              action: 'approve'
-            }),
-          });
-          
-          if (notifyResponse.ok) {
-            console.log('Goedkeuringsmail succesvol verzonden');
-          }
-        } catch (emailError) {
-          console.log('Email verzending optioneel - retailer is goedgekeurd');
-        }
+        const notifyResult = await notifyResponse.json();
+        console.log('[RETAILER APPROVAL] Notify result:', notifyResult);
         
-        alert('Retailer succesvol goedgekeurd! Status is bijgewerkt naar actief.');
+        alert('Retailer succesvol goedgekeurd en activatiemail verzonden!');
       } else {
         // Stap 1: Verzend afwijzingsmail
         const notifyResponse = await fetch('/api/retailers/notify', {

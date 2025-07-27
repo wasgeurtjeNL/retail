@@ -3,21 +3,29 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
-import { getProducts, Product } from "@/lib/supabase";
+import { getProducts, Product, getAllOrdersForRetailer, Order as SupabaseOrder } from "@/lib/supabase";
 import { createCheckoutSession } from "@/lib/stripe";
-import RetailerTips from "@/components/RetailerTips";
-import BusinessGrowthStrategies from "@/components/BusinessGrowthStrategies";
-import SocialMediaGuide from "@/components/SocialMediaGuide";
+
 import { SunIcon, MoonIcon, SparklesIcon } from "@heroicons/react/24/outline";
-import RetailerRewardsProgram from "@/components/RetailerRewardsProgram";
+
 import RetailerNotification from "@/components/RetailerNotification";
 import TestNotification from "@/components/TestNotification";
+import RetailerOnboarding from "@/components/RetailerOnboarding";
+import SalesAdviceWidget from "@/components/SalesAdviceWidget";
 
-// Mock data voor ontwikkeling
-const mockOrders = [
-  { id: 'ORD-1744497956483', date: '2025-04-13', status: 'Geleverd', total: 355.70, items: 3 },
-  { id: 'ORD-1744496722160', date: '2025-04-13', status: 'Verzonden', total: 737.50, items: 5 },
-];
+// Functie om echte ordergegevens op te halen uit Supabase
+const getOrdersFromSupabase = async (userEmail: string): Promise<SupabaseOrder[]> => {
+  try {
+    console.log('[RETAILER-DASHBOARD] Fetching orders from Supabase for:', userEmail);
+    const result = await getAllOrdersForRetailer(userEmail);
+    const orders = result.orders || [];
+    console.log('[RETAILER-DASHBOARD] Loaded orders from Supabase:', orders);
+    return orders;
+  } catch (error) {
+    console.error('[RETAILER-DASHBOARD] Error loading orders from Supabase:', error);
+    return [];
+  }
+};
 
 export default function RetailerDashboardPage() {
   const { user, isLoading: authLoading, isRetailer, retailerName } = useAuth();
@@ -33,6 +41,9 @@ export default function RetailerDashboardPage() {
     pendingOrders: 0,
     productsSold: 0
   });
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [checkingOnboarding, setCheckingOnboarding] = useState(true);
   
   // Update the current time every minute
   useEffect(() => {
@@ -106,64 +117,152 @@ export default function RetailerDashboardPage() {
   // Fetch retailer profile to get contact person name
   useEffect(() => {
     const fetchProfile = async () => {
-      if (!user) return;
+      if (!user || authLoading) return;
       
       try {
-        // For development, try to get it from localStorage first
-        if (typeof window !== 'undefined') {
-          const mockProfile = localStorage.getItem('dev-retailer-profile');
-          if (mockProfile) {
-            const profile = JSON.parse(mockProfile);
-            if (profile.contact_name) {
-              setContactName(profile.contact_name);
-              setBusinessName(profile.business_name);
-              return;
-            }
-          }
+        // Use simple email-based profile API (like getAllOrdersForRetailer)
+        if (!user.email) {
+          console.log('[RETAILER-DASHBOARD] No user email available');
+          return;
         }
         
-        // Try to get from user metadata first
-        if (user.user_metadata?.contactName) {
-          setContactName(user.user_metadata.contactName);
-          // Also get business name from metadata if available
-          if (user.user_metadata?.businessName) {
-            setBusinessName(user.user_metadata.businessName);
+        console.log('[RETAILER-DASHBOARD] Fetching profile with email:', user.email);
+        
+        const response = await fetch(`/api/profile?email=${encodeURIComponent(user.email)}`, {
+          method: 'GET',
+        });
+        
+        console.log('[RETAILER-DASHBOARD] Profile API response status:', response.status);
+        
+        if (response.ok) {
+          const profileData = await response.json();
+          console.log('[RETAILER-DASHBOARD] Profile API response data:', profileData);
+          
+          if (profileData.profile) {
+            const fullName = profileData.profile.full_name || '';
+            const companyName = profileData.profile.company_name || '';
+            
+            // Use database data
+            setContactName(fullName);
+            setBusinessName(companyName);
+            
+            console.log('[RETAILER-DASHBOARD] Profile loaded successfully:', { fullName, companyName });
             return;
           }
+        } else {
+          const errorText = await response.text();
+          console.log('[RETAILER-DASHBOARD] Profile API error:', response.status, errorText);
         }
         
-        // Fallback to mock data for demo
-        setContactName('Jan Janssen');
-        setBusinessName('Wasserij De Sprinter');
+        // Only use fallbacks if no database data is available
+        console.log('[RETAILER-DASHBOARD] No database profile found, trying fallbacks');
+        
+        // Try to get from user metadata as fallback
+        if (user.user_metadata?.contactName) {
+          setContactName(user.user_metadata.contactName);
+          setBusinessName(user.user_metadata?.businessName || 'Mijn Bedrijf');
+          console.log('[RETAILER-DASHBOARD] Using user metadata');
+          return;
+        }
+        
+        // Last resort fallback to email username
+        if (user?.email) {
+          const emailUsername = user.email.split('@')[0];
+          setContactName(emailUsername);
+          setBusinessName('Mijn Bedrijf');
+          console.log('[RETAILER-DASHBOARD] Using email fallback:', emailUsername);
+        }
         
       } catch (error) {
         console.error('Error fetching profile:', error);
         
         // Fallback to email username as last resort
-        if (user?.email) {
+        if (user?.email && !contactName) {
           setContactName(user.email.split('@')[0]);
+          setBusinessName('Mijn Bedrijf');
         }
       }
     };
     
     fetchProfile();
+  }, [user, authLoading]);
+
+  // Check onboarding status
+  useEffect(() => {
+    const checkOnboardingStatus = async () => {
+      if (!user) return;
+      
+      try {
+        const response = await fetch(`/api/onboarding/progress?profile_id=${user.id}`);
+        const data = await response.json();
+        
+        if (data.needs_onboarding) {
+          setShowOnboarding(true);
+        }
+      } catch (error) {
+        console.error('Error checking onboarding status:', error);
+      } finally {
+        setCheckingOnboarding(false);
+      }
+    };
+    
+    checkOnboardingStatus();
   }, [user]);
   
   useEffect(() => {
-    // In een echte app zouden we deze data van een API ophalen
-    // Voor nu gebruiken we mock data
-    setRecentOrders(mockOrders);
+    // Haal echte ordergegevens op uit Supabase
+    const loadOrdersAndStats = async () => {
+      if (!user?.email) {
+        setStatsLoading(false);
+        return;
+      }
+      
+      try {
+        setStatsLoading(true);
+        const orders = await getOrdersFromSupabase(user.email);
+        setRecentOrders(orders);
     
-    // Bereken totalen
-    const totalSales = mockOrders.reduce((sum, order) => sum + order.total, 0);
-    const totalItems = mockOrders.reduce((sum, order) => sum + order.items, 0);
+        // Bereken totalen met correcte type conversie
+        const totalSales = orders.reduce((sum: number, order: SupabaseOrder) => {
+          const orderTotal = typeof order.total_amount === 'string' 
+            ? parseFloat(order.total_amount) 
+            : Number(order.total_amount) || 0;
+          console.log('[RETAILER-DASHBOARD] Processing order:', order.order_number, 'Total:', orderTotal);
+          return sum + orderTotal;
+        }, 0);
+        
+        const totalItems = orders.reduce((sum: number, order: SupabaseOrder) => {
+          const items = order.items ? order.items.length : 0;
+          return sum + items;
+        }, 0);
+        
+        console.log('[RETAILER-DASHBOARD] Stats calculation:', {
+          totalOrders: orders.length,
+          totalSales,
+          totalItems
+        });
     
     setStats({
-      totalSales,
-      pendingOrders: mockOrders.filter(order => order.status === 'Verzonden').length,
-      productsSold: totalItems
+          totalSales: totalSales || 0,
+          pendingOrders: orders.filter((order: SupabaseOrder) => order.payment_status === 'pending').length,
+          productsSold: totalItems || 0
     });
-  }, []);
+        
+      } catch (error) {
+        console.error('[RETAILER-DASHBOARD] Error loading orders:', error);
+        // Zet fallback stats bij fout
+        setStats({
+          totalSales: 0,
+          pendingOrders: 0,
+          productsSold: 0
+        });
+      } finally {
+        setStatsLoading(false);
+      }
+    };
+    
+    loadOrdersAndStats();
+  }, [user?.email]);
 
   const handlePurchase = async (product: Product) => {
     setOrderLoading(true);
@@ -215,6 +314,19 @@ export default function RetailerDashboardPage() {
 
   return (
     <div className="px-4 py-6 sm:px-0">
+      {/* Onboarding Modal */}
+      {showOnboarding && !checkingOnboarding && user && (
+        <RetailerOnboarding
+          profileId={user.id}
+          onComplete={() => {
+            setShowOnboarding(false);
+            // Refresh the page to load fresh data
+            window.location.reload();
+          }}
+          onSkip={() => setShowOnboarding(false)}
+        />
+      )}
+
       <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         {/* Test Notification Component */}
         <TestNotification />
@@ -290,7 +402,7 @@ export default function RetailerDashboardPage() {
               {getTimeBasedGreeting().icon}
               <h1 className="text-2xl font-extrabold">
                 <span className={getTimeBasedGreeting().className}>{getTimeBasedGreeting().text}</span>
-                <span className="text-gray-900"> {contactName} van {businessName || retailerName || "Wasgeurtje"}</span>
+                <span className="text-gray-900"> {contactName} van {businessName || retailerName}</span>
               </h1>
             </div>
             <div className="flex justify-between items-center">
@@ -313,7 +425,7 @@ export default function RetailerDashboardPage() {
         </div>
         
         {/* Statistieken */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 mb-8">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
           <div className="bg-white overflow-hidden shadow rounded-lg">
             <div className="p-5">
               <div className="flex items-center">
@@ -329,7 +441,11 @@ export default function RetailerDashboardPage() {
                     </dt>
                     <dd>
                       <div className="text-lg font-medium text-gray-900">
-                        €{stats.totalSales.toFixed(2)}
+                        {statsLoading ? (
+                          <div className="animate-pulse bg-gray-200 h-6 w-20 rounded"></div>
+                        ) : (
+                          <>€{(stats.totalSales || 0).toFixed(2)}</>
+                        )}
                       </div>
                     </dd>
                   </dl>
@@ -360,7 +476,11 @@ export default function RetailerDashboardPage() {
                     </dt>
                     <dd>
                       <div className="text-lg font-medium text-gray-900">
-                        {stats.pendingOrders}
+                        {statsLoading ? (
+                          <div className="animate-pulse bg-gray-200 h-6 w-8 rounded"></div>
+                        ) : (
+                          stats.pendingOrders
+                        )}
                       </div>
                     </dd>
                   </dl>
@@ -371,6 +491,44 @@ export default function RetailerDashboardPage() {
               <div className="text-sm">
                 <Link href="/retailer-dashboard/orders" className="font-medium text-pink-600 hover:text-pink-500">
                   Bestellingen bijhouden
+                </Link>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-5">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-gradient-to-r from-purple-500 to-pink-600 rounded-md p-3">
+                  <svg className="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+                  </svg>
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-gray-500 truncate">
+                      Marketing Tools
+                    </dt>
+                    <dd>
+                      <div className="text-lg font-medium text-gray-900">
+                        Verhoog uw omzet
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        Tot +€1.250/maand mogelijk
+                      </div>
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+            <div className="bg-gradient-to-r from-purple-50 to-pink-50 px-5 py-3">
+              <div className="text-sm">
+                <Link href="/retailer-dashboard/marketing" className="font-medium text-purple-600 hover:text-purple-500 flex items-center">
+                  <span>Ontdek marketing strategieën</span>
+                  <svg className="ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  </svg>
                 </Link>
               </div>
             </div>
@@ -391,7 +549,11 @@ export default function RetailerDashboardPage() {
                     </dt>
                     <dd>
                       <div className="text-lg font-medium text-gray-900">
-                        {stats.productsSold}
+                        {statsLoading ? (
+                          <div className="animate-pulse bg-gray-200 h-6 w-8 rounded"></div>
+                        ) : (
+                          stats.productsSold
+                        )}
                       </div>
                     </dd>
                   </dl>
@@ -406,6 +568,11 @@ export default function RetailerDashboardPage() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Sales Advice Widget */}
+        <div className="mb-8">
+          <SalesAdviceWidget profileId={user?.id} />
         </div>
         
         {/* Recente bestellingen */}
@@ -460,24 +627,39 @@ export default function RetailerDashboardPage() {
                   {recentOrders.map((order) => (
                     <tr key={order.id}>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">#{order.id}</div>
+                        <div className="text-sm font-medium text-gray-900">#{order.order_number || order.id}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-500">{new Date(order.date).toLocaleDateString('nl-NL')}</div>
+                        <div className="text-sm text-gray-500">
+                          {new Date(order.created_at || order.date || Date.now()).toLocaleDateString('nl-NL')}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          order.status === 'Geleverd' 
+                          order.fulfillment_status === 'delivered' || order.status === 'Geleverd'
                             ? 'bg-green-100 text-green-800' 
-                            : order.status === 'Verzonden'
+                            : order.fulfillment_status === 'shipped' || order.status === 'Verzonden'
                               ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-blue-100 text-blue-800'
+                              : order.payment_status === 'paid'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-gray-100 text-gray-800'
                         }`}>
-                          {order.status}
+                          {order.fulfillment_status === 'delivered' || order.status === 'Geleverd' 
+                            ? 'Geleverd'
+                            : order.fulfillment_status === 'shipped' || order.status === 'Verzonden'
+                              ? 'Verzonden'
+                              : order.payment_status === 'paid'
+                                ? 'Betaald'
+                                : order.payment_status === 'pending'
+                                  ? 'Pending'
+                                  : order.status || 'Onbekend'
+                          }
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        €{order.total.toFixed(2)}
+                        €{(typeof order.total_amount === 'string' 
+                          ? parseFloat(order.total_amount) 
+                          : Number(order.total_amount) || 0).toFixed(2)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <Link 
@@ -495,78 +677,7 @@ export default function RetailerDashboardPage() {
           )}
         </div>
         
-        {/* Marketing materialen sectie */}
-        <div className="bg-white shadow rounded-lg mb-6">
-          <div className="px-4 py-5 sm:px-6 border-b border-gray-200">
-            <h2 className="text-lg font-medium text-gray-900">Marketing materialen</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Download marketingmateriaal voor in uw winkel
-            </p>
-          </div>
-          <div className="p-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-              <div className="h-40 bg-gray-100 rounded flex items-center justify-center mb-4">
-                <img src="/images/marketing/poster-placeholder.jpg" alt="Poster" className="h-full w-full object-cover rounded" />
-              </div>
-              <h3 className="font-medium text-gray-900">Winkelposters</h3>
-              <p className="text-sm text-gray-500 mt-1 mb-3">A4 & A3 posters voor in uw winkel</p>
-              <Link 
-                href="/retailer-dashboard/marketing?type=posters"
-                className="text-sm text-pink-600 font-medium hover:text-pink-500"
-              >
-                Bekijk posters →
-              </Link>
-            </div>
-            
-            <div className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-              <div className="h-40 bg-gray-100 rounded flex items-center justify-center mb-4">
-                <img src="/images/marketing/flyer-placeholder.jpg" alt="Flyers" className="h-full w-full object-cover rounded" />
-              </div>
-              <h3 className="font-medium text-gray-900">Flyers</h3>
-              <p className="text-sm text-gray-500 mt-1 mb-3">A5 flyers om uit te delen</p>
-              <Link 
-                href="/retailer-dashboard/marketing?type=flyers"
-                className="text-sm text-pink-600 font-medium hover:text-pink-500"
-              >
-                Bekijk flyers →
-              </Link>
-            </div>
-            
-            <div className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-              <div className="h-40 bg-gray-100 rounded flex items-center justify-center mb-4">
-                <img src="/images/marketing/banner-placeholder.jpg" alt="Digitale banners" className="h-full w-full object-cover rounded" />
-              </div>
-              <h3 className="font-medium text-gray-900">Digitale banners</h3>
-              <p className="text-sm text-gray-500 mt-1 mb-3">Banners voor uw website en social media</p>
-              <Link 
-                href="/retailer-dashboard/marketing?type=digital"
-                className="text-sm text-pink-600 font-medium hover:text-pink-500"
-              >
-                Bekijk banners →
-              </Link>
-            </div>
-          </div>
-        </div>
-        
-        {/* Social Media Plaatsingshandleiding */}
-        <div className="mb-6">
-          <SocialMediaGuide />
-        </div>
-        
-        {/* Retailer Rewards Programma */}
-        <div className="mb-6">
-          <RetailerRewardsProgram />
-        </div>
-        
-        {/* Business Groeistrategie Sectie */}
-        <div className="mb-6">
-          <BusinessGrowthStrategies />
-        </div>
-        
-        {/* Tips & Tricks Sectie */}
-        <div className="mb-6">
-          <RetailerTips />
-        </div>
+
       </div>
     </div>
   );

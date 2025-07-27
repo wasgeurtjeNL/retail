@@ -62,6 +62,10 @@ export async function POST(request: Request) {
         status: 'order_ready',
         payment_options_sent: true,
         payment_options_sent_at: new Date().toISOString(),
+        metadata: {
+          ...application.metadata,
+          current_step: 'delivery'
+        },
         updated_at: new Date().toISOString()
       })
       .eq('id', applicationId)

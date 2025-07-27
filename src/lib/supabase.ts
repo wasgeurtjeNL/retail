@@ -352,7 +352,12 @@ export const getOrders = async (paymentStatus?: Order['payment_status'], fulfill
     const mappedOrders = (data || []).map((order: any) => ({
         ...order,
         fulfillment_status: order.status,
-        shipping_provider: order.metadata?.shipping_provider || 'postnl'
+        shipping_provider: order.metadata?.shipping_provider || 'postnl',
+        // Ensure numeric fields are properly converted from database DECIMAL strings
+        total_amount: parseFloat(order.total_amount) || 0,
+        subtotal: parseFloat(order.subtotal) || 0,
+        shipping_cost: parseFloat(order.shipping_cost) || 0,
+        tax_amount: parseFloat(order.tax_amount) || 0
     }));
     
     return { orders: mappedOrders, error: null };
@@ -501,6 +506,144 @@ export const deleteOrder = async (orderId: string) => {
     return { error: null };
 };
 
+// Haal het profile_id op voor een retailer op basis van email
+export const getRetailerProfileId = async (email: string): Promise<{ profileId: string | null; error: any }> => {
+    try {
+        console.log('[DB_OPERATION] Getting profile ID for email:', email);
+        
+        // Service role client voor admin operaties (regel 19)
+        const adminClient = getServiceRoleClient();
+        
+        const { data: profileData, error } = await adminClient
+            .from('profiles')
+            .select('id')
+            .eq('email', email)
+            .single();
+
+        if (error) {
+            console.error('[DB_OPERATION] Error fetching profile:', error);
+            return { profileId: null, error };
+        }
+
+        if (!profileData) {
+            console.warn('[DB_OPERATION] No profile found for email:', email);
+            return { profileId: null, error: 'Profile not found' };
+        }
+
+        console.log('[DB_OPERATION] Found profile ID:', profileData.id);
+        return { profileId: profileData.id, error: null };
+        
+    } catch (error) {
+        console.error('[DB_OPERATION] Unexpected error getting profile ID:', error);
+        return { profileId: null, error };
+    }
+};
+
+// Maak een nieuwe order aan in de database (regel 18-25)
+export const createOrder = async (orderData: {
+    profile_id: string;
+    order_number: string;
+    subtotal: number;
+    shipping_cost?: number;
+    tax_amount?: number;
+    total_amount: number;
+    payment_method?: 'ideal' | 'invoice' | 'credit_card';
+    shipping_address?: string;
+    shipping_city?: string;
+    shipping_postal_code?: string;
+    shipping_country?: string;
+    billing_address?: string;
+    billing_city?: string;
+    billing_postal_code?: string;
+    billing_country?: string;
+    metadata?: any;
+    items: {
+        id: string;
+        product_id: string;
+        product_name: string;
+        quantity: number;
+        price: number;
+    }[];
+}): Promise<{ order: Order | null; error: any }> => {
+    try {
+        console.log('[DB_OPERATION] Starting order creation:', orderData.order_number);
+        
+        // Valideer input
+        if (!orderData.profile_id || !orderData.order_number || !orderData.total_amount) {
+            const error = new Error('Required fields missing: profile_id, order_number, total_amount');
+            console.error('[DB_OPERATION] Validation error:', error.message);
+            return { order: null, error };
+        }
+        
+        // Service role client voor admin operaties (regel 19)
+        const adminClient = getServiceRoleClient();
+        
+        // Converteer DECIMAL strings naar numbers (regel 20)
+        const dbOrderData = {
+            profile_id: orderData.profile_id,
+            order_number: orderData.order_number,
+            status: 'pending' as const,
+            payment_status: 'pending' as const,
+            payment_method: orderData.payment_method || 'invoice',
+            subtotal: parseFloat(orderData.subtotal.toString()),
+            shipping_cost: parseFloat((orderData.shipping_cost || 0).toString()),
+            tax_amount: parseFloat((orderData.tax_amount || 0).toString()),
+            total_amount: parseFloat(orderData.total_amount.toString()),
+            shipping_address: orderData.shipping_address,
+            shipping_city: orderData.shipping_city,
+            shipping_postal_code: orderData.shipping_postal_code,
+            shipping_country: orderData.shipping_country || 'Nederland',
+            billing_address: orderData.billing_address,
+            billing_city: orderData.billing_city,
+            billing_postal_code: orderData.billing_postal_code,
+            billing_country: orderData.billing_country || 'Nederland',
+            metadata: {
+                ...orderData.metadata,
+                items: orderData.items, // Uitgebreide metadata met items (regel 22)
+                created_from: 'catalog',
+                order_source: 'retailer_dashboard'
+            },
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
+        
+        console.log('[DB_OPERATION] Prepared order data for database:', dbOrderData);
+        
+        // Create order in database
+        const { data: createdOrder, error: createError } = await adminClient
+            .from('orders')
+            .insert(dbOrderData)
+            .select(`
+                *,
+                profiles (
+                    email,
+                    company_name
+                )
+            `)
+            .single();
+
+        if (createError) {
+            console.error('[DB_OPERATION] Error creating order:', createError);
+            return { order: null, error: createError };
+        }
+
+        console.log('[DB_OPERATION] Order created successfully:', createdOrder.id);
+        
+        // Convert database result to Order type
+        const order: Order = {
+            ...createdOrder,
+            fulfillment_status: createdOrder.status,
+            items: orderData.items
+        };
+        
+        return { order, error: null };
+        
+    } catch (error) {
+        console.error('[DB_OPERATION] Unexpected error creating order:', error);
+        return { order: null, error };
+    }
+};
+
 // Wasstrips Application interface voor orders overzicht
 export type WasstripsApplication = {
     id: string;
@@ -509,9 +652,11 @@ export type WasstripsApplication = {
     deposit_status: 'not_sent' | 'sent' | 'paid' | 'failed';
     deposit_amount: number;
     deposit_paid_at?: string;
+    deposit_payment_link?: string; // Payment link voor aanbetaling
     total_amount: number | string; // Can be string from database DECIMAL
     remaining_amount?: number | string; // Can be string from database DECIMAL
     remaining_payment_status?: 'not_sent' | 'sent' | 'paid' | 'failed';
+    remaining_payment_link?: string; // Payment link voor restbedrag
     tracking_code?: string;
     notes?: string;
     created_at: string;
@@ -558,6 +703,7 @@ export const getWasstripsOrders = async (depositStatus?: 'not_sent' | 'sent' | '
                 deposit_status,
                 deposit_amount,
                 deposit_paid_at,
+                remaining_payment_status,
                 total_amount,
                 tracking_code,
                 notes,
@@ -733,6 +879,17 @@ export const getRetailerById = async (id: string) => {
     
     // Gebruik de data zonder role filter
     const profile = dataWithoutRole[0];
+    
+    // Map database status naar frontend verwachte status
+    const mapDatabaseStatus = (dbStatus: string): 'pending' | 'approved' | 'rejected' => {
+      switch (dbStatus) {
+        case 'active': return 'approved';
+        case 'suspended': return 'rejected';
+        case 'pending': return 'pending';
+        default: return 'pending';
+      }
+    };
+    
     const retailer = {
       id: profile.id,
       user_id: profile.id,
@@ -744,7 +901,7 @@ export const getRetailerById = async (id: string) => {
       city: profile.city || '',
       postal_code: profile.postal_code || '',
       country: profile.country || 'Nederland',
-      status: profile.status as 'pending' | 'approved' | 'rejected',
+      status: mapDatabaseStatus(profile.status),
       created_at: profile.created_at
     };
     
@@ -754,6 +911,17 @@ export const getRetailerById = async (id: string) => {
 
   // Map de profile data naar retailer format voor backwards compatibility
   const profile = data[0];
+  
+  // Map database status naar frontend verwachte status
+  const mapDatabaseStatus = (dbStatus: string): 'pending' | 'approved' | 'rejected' => {
+    switch (dbStatus) {
+      case 'active': return 'approved';
+      case 'suspended': return 'rejected';
+      case 'pending': return 'pending';
+      default: return 'pending';
+    }
+  };
+  
   const retailer = {
     id: profile.id,
     user_id: profile.id, // Voor profiles is id hetzelfde als user_id
@@ -765,7 +933,7 @@ export const getRetailerById = async (id: string) => {
     city: profile.city || '',
     postal_code: profile.postal_code || '',
     country: profile.country || 'Nederland',
-    status: profile.status as 'pending' | 'approved' | 'rejected',
+    status: mapDatabaseStatus(profile.status),
     created_at: profile.created_at
   };
 
@@ -1052,34 +1220,6 @@ export const convertWasstripsToOrder = (application: WasstripsApplication): Orde
         fulfillmentStatus = 'processing'; // Wacht op betaalmethode
     }
     
-    // Bepaal payment status
-    let paymentStatus: Order['payment_status'] = 'pending';
-    
-    // Check eerst of de restbetaling is voltooid
-    if (application.remaining_payment_status === 'paid') {
-        paymentStatus = 'paid';
-    } else if (application.deposit_status === 'paid' && application.payment_method_selected === 'direct') {
-        // Als aanbetaling gedaan is EN directe betaling gekozen, dan is er nog restbedrag te betalen
-        paymentStatus = 'pending';
-    } else if (application.deposit_status === 'paid' && application.payment_method_selected === 'invoice') {
-        paymentStatus = 'paid'; // Voor factuurbetalingen beschouwen we het als betaald
-    }
-    
-    console.log(`[convertWasstripsToOrder] Payment status calculation:`, {
-        remaining_payment_status: application.remaining_payment_status,
-        deposit_status: application.deposit_status,
-        payment_method_selected: application.payment_method_selected,
-        final_payment_status: paymentStatus
-    });
-    
-    // Bepaal order status
-    let orderStatus: Order['status'] = 'pending';
-    if (application.status === 'shipped') {
-        orderStatus = 'shipped';
-    } else if (application.deposit_status === 'paid') {
-        orderStatus = 'processing';
-    }
-    
     // Convert string amounts to numbers (database returns DECIMAL as string)
     const orderTotal = typeof application.order_total === 'string' 
         ? parseFloat(application.order_total) 
@@ -1089,23 +1229,127 @@ export const convertWasstripsToOrder = (application: WasstripsApplication): Orde
         : application.total_amount || 0;
     const depositAmount = typeof application.deposit_amount === 'string' 
         ? parseFloat(application.deposit_amount) 
-        : application.deposit_amount || 0;
+        : application.deposit_amount || 30; // Default €30 aanbetaling
+    const remainingAmount = typeof application.remaining_amount === 'string' 
+        ? parseFloat(application.remaining_amount) 
+        : application.remaining_amount || 270; // Default €270 restbedrag
         
     const fullAmount = orderTotal || totalAmount || 300;
     
-    // Voor wasstrips orders: gebruik altijd het restbedrag als er aanbetaling is gedaan
+    // Gebruik database current_step als beschikbaar, anders bereken het
+    let currentStep = application.metadata?.current_step || 'deposit';
     let paymentAmount = fullAmount;
-    if (application.deposit_status === 'paid') {
-        paymentAmount = fullAmount - depositAmount; // Restbedrag te betalen
-        console.log(`[convertWasstripsToOrder] Using remaining amount: ${fullAmount} - ${depositAmount} = ${paymentAmount}`);
+    let paymentStatus: Order['payment_status'] = 'pending';
+    let stepDescription = '';
+    
+    // Als we geen metadata current_step hebben, gebruik de oude logica
+    if (!application.metadata?.current_step) {
+        // Stap 1: Aanbetaling (€30)
+        if (application.deposit_status !== 'paid') {
+            paymentAmount = depositAmount;
+            paymentStatus = 'pending';
+            currentStep = 'deposit';
+            stepDescription = 'Aanbetaling te betalen';
+            console.log(`[convertWasstripsToOrder] Step 1 - Deposit payment: €${depositAmount}`);
+        }
+        // Stap 2: Restbedrag (€270) - alleen als aanbetaling betaald EN restbetaling is verstuurd
+        else if (application.deposit_status === 'paid' && application.remaining_payment_status === 'sent' && application.remaining_payment_link) {
+            paymentAmount = remainingAmount;
+            paymentStatus = 'pending';
+            currentStep = 'remaining';
+            stepDescription = 'Restbedrag te betalen (bestelling binnen)';
+            console.log(`[convertWasstripsToOrder] Step 2 - Remaining payment: €${remainingAmount}`);
+        }
+        // Tussentoestand: Aanbetaling betaald, wachten op restbetaling van admin
+        else if (application.deposit_status === 'paid' && application.remaining_payment_status === 'not_sent') {
+            paymentAmount = 0;
+            paymentStatus = 'paid'; // Aanbetaling is betaald
+            currentStep = 'waiting_for_admin';
+            stepDescription = 'Aanbetaling ontvangen - Wij bereiden uw bestelling voor';
+            console.log(`[convertWasstripsToOrder] Waiting for admin to send remaining payment`);
+        }
+        // Stap 3: Levering opties (direct/factuur) - alleen als restbedrag betaald MAAR geen betaalmethode geselecteerd
+        else if (application.remaining_payment_status === 'paid' && !application.payment_method_selected) {
+            paymentAmount = 0; // Geen betaling meer, alleen keuze maken
+            paymentStatus = 'paid'; // Financieel afgehandeld
+            currentStep = 'delivery';
+            stepDescription = 'Kies leveringsoptie: direct betalen of factuur';
+            console.log(`[convertWasstripsToOrder] Step 3 - Delivery options`);
+        }
+        // Alles afgehandeld - als beide betalingen zijn gedaan EN er is een betaalmethode geselecteerd
+        else if (application.remaining_payment_status === 'paid' && application.payment_method_selected) {
+            paymentAmount = 0;
+            paymentStatus = 'paid';
+            currentStep = 'completed';
+            stepDescription = application.status === 'shipped' ? 'Bestelling verzonden' : 'Bestelling wordt voorbereid';
+            console.log(`[convertWasstripsToOrder] All steps completed - Status: ${application.status}`);
+        }
+    } else {
+        // Gebruik database current_step en bepaal payment info gebaseerd daarop
+        console.log(`[convertWasstripsToOrder] Using database current_step: ${currentStep}`);
+        
+        switch (currentStep) {
+            case 'deposit':
+                paymentAmount = depositAmount;
+                paymentStatus = 'pending';
+                stepDescription = 'Aanbetaling te betalen';
+                break;
+            case 'remaining':
+                paymentAmount = remainingAmount;
+                paymentStatus = 'pending';
+                stepDescription = 'Restbedrag te betalen (bestelling binnen)';
+                break;
+            case 'waiting_for_admin':
+                paymentAmount = 0;
+                paymentStatus = 'paid';
+                stepDescription = 'Aanbetaling ontvangen - Wij bereiden uw bestelling voor';
+                break;
+            case 'delivery':
+                // Als er al een betaalmethode is geselecteerd, is het eigenlijk completed
+                if (application.payment_method_selected) {
+                    paymentAmount = 0;
+                    paymentStatus = 'paid';
+                    currentStep = 'completed';
+                    stepDescription = application.status === 'shipped' ? 'Bestelling verzonden' : 'Bestelling wordt voorbereid';
+                } else {
+                    paymentAmount = 0;
+                    paymentStatus = 'paid';
+                    stepDescription = 'Kies leveringsoptie: direct betalen of factuur';
+                }
+                break;
+            case 'completed':
+                paymentAmount = 0;
+                paymentStatus = 'paid';
+                stepDescription = application.status === 'shipped' ? 'Bestelling verzonden' : 'Bestelling wordt voorbereid';
+                break;
+            default:
+                paymentAmount = depositAmount;
+                paymentStatus = 'pending';
+                stepDescription = 'Aanbetaling te betalen';
+        }
     }
     
-    console.log(`[convertWasstripsToOrder] Final amounts:`, {
-        fullAmount,
-        depositAmount,
+    // Bepaal order status
+    let orderStatus: Order['status'] = 'pending';
+    if (application.status === 'shipped') {
+        orderStatus = 'shipped';
+    } else if (currentStep === 'completed' || currentStep === 'delivery') {
+        orderStatus = 'processing';
+    } else if (currentStep === 'remaining') {
+        orderStatus = 'processing';
+    } else {
+        orderStatus = 'pending';
+    }
+    
+    console.log(`[convertWasstripsToOrder] Payment flow summary:`, {
+        currentStep,
         paymentAmount,
+        paymentStatus,
+        stepDescription,
         depositStatus: application.deposit_status,
-        paymentMethod: application.payment_method_selected
+        remainingPaymentStatus: application.remaining_payment_status,
+        paymentOptionsSent: application.payment_options_sent,
+        paymentMethodSelected: application.payment_method_selected
     });
     
     // Maak items array van product details
@@ -1130,8 +1374,8 @@ export const convertWasstripsToOrder = (application: WasstripsApplication): Orde
         status: orderStatus,
         payment_status: paymentStatus,
         payment_method: application.payment_method_selected === 'direct' ? 'credit_card' : 'invoice',
-        total_amount: paymentAmount, // Voor betaling gebruiken we het restbedrag
-        subtotal: paymentAmount,
+        total_amount: fullAmount, // Toon altijd het volledige orderbedrag (€300)
+        subtotal: fullAmount,
         shipping_cost: 0,
         tax_amount: 0,
         tracking_code: application.tracking_code,
@@ -1141,17 +1385,22 @@ export const convertWasstripsToOrder = (application: WasstripsApplication): Orde
         fulfillment_status: fulfillmentStatus,
         items: items,
         profiles: application.profiles,
-        metadata: {
+                            metadata: {
             wasstrips_application_id: application.id,
             deposit_status: application.deposit_status,
             deposit_amount: application.deposit_amount,
             deposit_paid_at: application.deposit_paid_at,
+            deposit_payment_link: application.deposit_payment_link, // Belangrijk: voeg deposit payment link toe
+            remaining_payment_status: application.remaining_payment_status,
+            remaining_amount: application.remaining_amount,
+            remaining_payment_link: application.remaining_payment_link, // Belangrijk: voeg remaining payment link toe
             payment_options_sent: application.payment_options_sent,
             payment_method_selected: application.payment_method_selected,
             product_details: application.product_details,
             full_order_amount: fullAmount, // Bewaar het volledige orderbedrag
-            remaining_amount: paymentAmount, // Bewaar het restbedrag
-            remaining_payment_status: application.remaining_payment_status
+            current_step: currentStep, // Nieuwe field: huidige stap
+            step_description: stepDescription, // Nieuwe field: beschrijving van huidige stap
+            current_payment_amount: paymentAmount, // Het bedrag voor de huidige stap
         }
     };
 };
@@ -1204,9 +1453,11 @@ export const getWasstripsOrdersForRetailer = async (email: string): Promise<{ or
                     deposit_status,
                     deposit_amount,
                     deposit_paid_at,
+                    deposit_payment_link,
                     total_amount,
                     remaining_amount,
                     remaining_payment_status,
+                    remaining_payment_link,
                     tracking_code,
                     notes,
                     created_at,
@@ -1271,6 +1522,134 @@ export const getWasstripsOrdersForRetailer = async (email: string): Promise<{ or
             metadata: { operation: 'retailer_order_fetch' }
         }
     );
+};
+
+// Haal ALLE orders op voor een retailer (catalog + wasstrips orders)
+export const getAllOrdersForRetailer = async (email: string): Promise<{ orders: Order[]; error: any }> => {
+    try {
+        console.log(`[getAllOrdersForRetailer] Fetching all orders for email: ${email}`);
+        
+        // Service role client voor admin operaties (regel 19)
+        const adminClient = getServiceRoleClient();
+        
+        // Stap 1: Haal profile_id op basis van email
+        const { data: profileData, error: profileError } = await adminClient
+            .from('profiles')
+            .select('id, email, company_name')
+            .eq('email', email)
+            .single();
+
+        if (profileError || !profileData) {
+            console.error('[getAllOrdersForRetailer] Error fetching profile:', profileError);
+            return { orders: [], error: profileError };
+        }
+
+        console.log(`[getAllOrdersForRetailer] Found profile:`, profileData);
+        
+        // Stap 2: Haal catalog orders op uit orders tabel
+        const { data: catalogOrders, error: catalogError } = await adminClient
+            .from('orders')
+            .select(`
+                id,
+                order_number,
+                profile_id,
+                status,
+                payment_status,
+                payment_method,
+                stripe_session_id,
+                stripe_payment_intent_id,
+                subtotal,
+                shipping_cost,
+                tax_amount,
+                total_amount,
+                shipping_address,
+                shipping_city,
+                shipping_postal_code,
+                shipping_country,
+                billing_address,
+                billing_city,
+                billing_postal_code,
+                billing_country,
+                tracking_code,
+                notes,
+                metadata,
+                created_at,
+                updated_at
+            `)
+            .eq('profile_id', profileData.id)
+            .order('created_at', { ascending: false });
+
+        if (catalogError) {
+            console.error('[getAllOrdersForRetailer] Error fetching catalog orders:', catalogError);
+        }
+
+        console.log(`[getAllOrdersForRetailer] Found ${catalogOrders?.length || 0} catalog orders`);
+        
+        // Stap 3: Haal wasstrips orders op (gebruik bestaande functie)
+        const { orders: wasstripsOrders, error: wasstripsError } = await getWasstripsOrdersForRetailer(email);
+        
+        if (wasstripsError) {
+            console.error('[getAllOrdersForRetailer] Error fetching wasstrips orders:', wasstripsError);
+        }
+
+        console.log(`[getAllOrdersForRetailer] Found ${wasstripsOrders?.length || 0} wasstrips orders`);
+        
+        // Stap 4: Converteer catalog orders naar Order format
+        const formattedCatalogOrders: Order[] = catalogOrders?.map((order): Order => ({
+            id: order.id,
+            order_number: order.order_number,
+            profile_id: order.profile_id,
+            status: order.status,
+            payment_status: order.payment_status,
+            payment_method: order.payment_method,
+            stripe_session_id: order.stripe_session_id,
+            stripe_payment_intent_id: order.stripe_payment_intent_id,
+            subtotal: parseFloat(order.subtotal?.toString() || '0'),
+            shipping_cost: parseFloat(order.shipping_cost?.toString() || '0'),
+            tax_amount: parseFloat(order.tax_amount?.toString() || '0'),
+            total_amount: parseFloat(order.total_amount?.toString() || '0'),
+            shipping_address: order.shipping_address,
+            shipping_city: order.shipping_city,
+            shipping_postal_code: order.shipping_postal_code,
+            shipping_country: order.shipping_country,
+            billing_address: order.billing_address,
+            billing_city: order.billing_city,
+            billing_postal_code: order.billing_postal_code,
+            billing_country: order.billing_country,
+            tracking_code: order.tracking_code,
+            notes: order.notes,
+            metadata: {
+                ...order.metadata,
+                order_type: 'catalog', // Markeer als catalog order
+                items: order.metadata?.items || []
+            },
+            created_at: order.created_at,
+            updated_at: order.updated_at,
+            // Voor compatibility
+            fulfillment_status: order.status as any,
+            items: order.metadata?.items || [],
+            profiles: profileData
+        })) || [];
+        
+        console.log(`[getAllOrdersForRetailer] Formatted ${formattedCatalogOrders.length} catalog orders`);
+        
+        // Stap 5: Combineer beide types orders
+        const allOrders = [
+            ...formattedCatalogOrders,
+            ...(wasstripsOrders || [])
+        ];
+        
+        // Sort by created_at (newest first)
+        allOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        
+        console.log(`[getAllOrdersForRetailer] Combined total: ${allOrders.length} orders (${formattedCatalogOrders.length} catalog + ${wasstripsOrders?.length || 0} wasstrips)`);
+        
+        return { orders: allOrders, error: null };
+        
+    } catch (error) {
+        console.error('[getAllOrdersForRetailer] Unexpected error:', error);
+        return { orders: [], error };
+    }
 };
 
 // Update wasstrips application (voor admin dashboard)

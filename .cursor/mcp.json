@@ -2,7 +2,7 @@
   "mcpServers": {
     "browsermcp": {
       "command": "npx",
-      "args": ["@browsermcp/mcp@latest"]
+      "args": ["@browsermcp/mcp@latest", "start"]
     },
     "supabase": {
       "command": "C:\\Users\\Gebruiker\\AppData\\Roaming\\npm\\mcp-server-supabase.cmd",

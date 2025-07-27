@@ -32,64 +32,89 @@
 17 - Test API-routes ALTIJD met verschillende user contexts (admin vs regular user) om RLS problemen vroeg te detecteren.
 
 # -------------------------------
+# DATA MANAGEMENT & RETRIEVAL
+# -------------------------------
+18 - Voor ALLE data management features: Lees EERST de "DATA MANAGEMENT & RETRIEVAL PATTERNS" sectie in `src/lib/PAYMENT-IMPLEMENTATION-GUIDE.md`
+19 - Gebruik ALTIJD `getServiceRoleClient()` voor admin operaties en `createRouteHandlerClient()` alleen voor user-specific data met RLS
+20 - Converteer ALTIJD database DECIMAL strings naar numbers: `parseFloat(dbValue)` voor alle numerieke velden
+21 - Implementeer bulk queries voor profile joins: gebruik `.in(id, profileIds)` om N+1 query problemen te voorkomen
+22 - Voeg ALTIJD uitgebreide metadata toe aan order conversions inclusief payment step informatie
+23 - Gebruik consistent error handling met `try/catch` en `{ data, error }` return patterns
+24 - Log alle database operaties met context: `console.log('[DB_OPERATION]', 'context', data)`
+25 - Test data flows met verschillende user types (admin vs retailer) om RLS en permission issues te detecteren
+
+# -------------------------------
+# PAYMENT IMPLEMENTATIONS
+# -------------------------------
+26 - Voor ALLE betaling gerelateerde features: Lees EERST het Payment Implementation Guide in `src/lib/PAYMENT-IMPLEMENTATION-GUIDE.md`
+27 - Gebruik NOOIT hardcoded Stripe keys - altijd environment variables: `NEXT_PUBLIC_STRIPE_TEST_PUBLISHABLE_KEY`, `STRIPE_TEST_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+28 - Webhook secrets MOETEN worden gekopieerd van Stripe CLI naar .env.local (whsec_...)
+29 - Gebruik ALTIJD raw request body voor webhook signature verification: `await req.text()` NIET `await req.json()`
+30 - Metadata tussen checkout en webhook MOET consistent zijn: zelfde veldnamen en waarden
+31 - Voor database updates in webhooks: gebruik ALTIJD service role client (`getServiceRoleClient()`)
+32 - Voeg uitgebreide logging toe aan alle payment flows: `console.log('[PAYMENT]', '[WEBHOOK]', '[STRIPE]')` prefixes
+33 - Test payment flows met Stripe CLI: `stripe listen --forward-to localhost:3000/api/stripe/webhook --events checkout.session.completed,payment_intent.succeeded`
+34 - Voor multi-step betalingen: implementeer tussentoestanden zoals `waiting_for_admin` om verwarring te voorkomen
+
+# -------------------------------
 # ORDER MANAGEMENT
 # -------------------------------
-18 - Implementeer altijd betaalstatustracking met visuele indicatoren (groen voor betaald, geel voor in afwachting, rood voor mislukt).
-19 - Gebruik de `handlePayNow` functie voor het initiëren van Stripe betalingen vanuit de ordergeschiedenis, waarbij orderId en ordergegevens correct worden doorgegeven.
-20 - Synchroniseer ordergegevens tussen admin en retailer views door tracking codes en statusupdates te delen via localStorage.
-21 - Implementeer betaalstatusupdates met vervaldatum countdown voor factuurbetalingen en directe statusfeedback voor online betalingen.
-22 - Zorg voor consistente opslag van ordergegevens in localStorage volgens het OrderDetails interface, met ondersteuning voor ordergeschiedenis recovery.
+35 - Implementeer altijd betaalstatustracking met visuele indicatoren (groen voor betaald, geel voor in afwachting, rood voor mislukt).
+36 - Gebruik de `handlePayNow` functie voor het initiëren van Stripe betalingen vanuit de ordergeschiedenis, waarbij orderId en ordergegevens correct worden doorgegeven.
+37 - Synchroniseer ordergegevens tussen admin en retailer views door tracking codes en statusupdates te delen via localStorage.
+38 - Implementeer betaalstatusupdates met vervaldatum countdown voor factuurbetalingen en directe statusfeedback voor online betalingen.
+39 - Zorg voor consistente opslag van ordergegevens in localStorage volgens het OrderDetails interface, met ondersteuning voor ordergeschiedenis recovery.
 
 # -------------------------------
 # COMPONENT USAGE
 # -------------------------------
-23 - Hergebruik bestaande componenten zoals ProductItem, RetailerNavbar, BrandingStudio, enzovoort. Maak alleen nieuwe componenten als er een functionele reden is.
-24 - Houd componenten modulair en duidelijk gescheiden qua verantwoordelijkheden. Combineer geen logica's die niets met elkaar te maken hebben.
+40 - Hergebruik bestaande componenten zoals ProductItem, RetailerNavbar, BrandingStudio, enzovoort. Maak alleen nieuwe componenten als er een functionele reden is.
+41 - Houd componenten modulair en duidelijk gescheiden qua verantwoordelijkheden. Combineer geen logica's die niets met elkaar te maken hebben.
 
 # -------------------------------
 # PERFORMANCE & STRUCTURE
 # -------------------------------
-25 - Gebruik standaard Server Components in de /app directory. Voeg alleen 'use client' toe als het component state, event listeners of useEffect gebruikt.
-26 - Gebruik dynamische imports en lazy loading waar mogelijk om performance te verbeteren.
-27 - Gebruik het Next.js <Image> component voor optimalisatie van afbeeldingen en laadtijden.
-28 - Optimaliseer componenten zodat ze enkel renderen wanneer nodig (bijv. bij user interaction of scroll).
+42 - Gebruik standaard Server Components in de /app directory. Voeg alleen 'use client' toe als het component state, event listeners of useEffect gebruikt.
+43 - Gebruik dynamische imports en lazy loading waar mogelijk om performance te verbeteren.
+44 - Gebruik het Next.js <Image> component voor optimalisatie van afbeeldingen en laadtijden.
+45 - Optimaliseer componenten zodat ze enkel renderen wanneer nodig (bijv. bij user interaction of scroll).
 
 # -------------------------------
 # CODE QUALITY & UITLEG
 # -------------------------------
-29 - Geef elke functie of component een korte uitleg met een comment direct erboven. Leg in begrijpelijke taal uit wat de functie doet en waarom deze bestaat.
+46 - Geef elke functie of component een korte uitleg met een comment direct erboven. Leg in begrijpelijke taal uit wat de functie doet en waarom deze bestaat.
     Bijvoorbeeld:
     // Haalt een lijst op van actieve retailers uit Supabase en filtert op status = 'verified'
-30 - Vermijd het gebruik van 'any' in TypeScript. Gebruik duidelijke types of generics voor veiligheid en leesbaarheid.
-31 - Houd functies klein en gericht. Als een functie meerdere verantwoordelijkheden heeft, splits deze dan op in logische onderdelen.
+47 - Vermijd het gebruik van 'any' in TypeScript. Gebruik duidelijke types of generics voor veiligheid en leesbaarheid.
+48 - Houd functies klein en gericht. Als een functie meerdere verantwoordelijkheden heeft, splits deze dan op in logische onderdelen.
 
 # -------------------------------
 # NAMING & CONSISTENCY
 # -------------------------------
-32 - Gebruik camelCase voor variabelen en functies.
-33 - Gebruik PascalCase voor componentnamen en mapnamen binnen /components.
-34 - Houd bestandsnamen kort, duidelijk en consistent met bestaande conventies.
+49 - Gebruik camelCase voor variabelen en functies.
+50 - Gebruik PascalCase voor componentnamen en mapnamen binnen /components.
+51 - Houd bestandsnamen kort, duidelijk en consistent met bestaande conventies.
 
 # -------------------------------
 # DEVELOPMENT FLOW
 # -------------------------------
-35 - Gebruik `npm run dev` om de app lokaal te draaien. Zorg dat dit gebeurt in de juiste projectfolder.
-36 - Bij het testen van postcodevalidatie of stripe-functionaliteit, gebruik de bestaande endpoints in /app/api en respecteer de mappenstructuur.
-37 - Code moet direct functioneel én visueel werkend zijn binnen de bestaande setup, zonder aanvullende configuratie buiten wat in README-bestanden staat.
-38 - Start de server NIET automatisch op na elke wijziging. Laat dit aan de gebruiker over om handmatig te doen wanneer nodig.
+52 - Gebruik `npm run dev` om de app lokaal te draaien. Zorg dat dit gebeurt in de juiste projectfolder.
+53 - Bij het testen van postcodevalidatie of stripe-functionaliteit, gebruik de bestaande endpoints in /app/api en respecteer de mappenstructuur.
+54 - Code moet direct functioneel én visueel werkend zijn binnen de bestaande setup, zonder aanvullende configuratie buiten wat in README-bestanden staat.
+55 - Start de server NIET automatisch op na elke wijziging. Laat dit aan de gebruiker over om handmatig te doen wanneer nodig.
 
 # -------------------------------
 # DEBUGGING STRATEGY
 # -------------------------------
-39 - Bij lege resultaten: gebruik MCP tools om direct database state te controleren voordat je frontend/API code aanpast.
-40 - Voeg logging toe aan zowel frontend als backend bij nieuwe features: `console.log('[Frontend]', '[API]')` prefixes gebruiken.
-41 - Test API-routes met verschillende user roles en rechten om edge cases vroeg te vangen.
-42 - Bij Supabase problemen: controleer eerst RLS, dan foreign key constraints, dan client configuratie.
+56 - Bij lege resultaten: gebruik MCP tools om direct database state te controleren voordat je frontend/API code aanpast.
+57 - Voeg logging toe aan zowel frontend als backend bij nieuwe features: `console.log('[Frontend]', '[API]')` prefixes gebruiken.
+58 - Test API-routes met verschillende user roles en rechten om edge cases vroeg te vangen.
+59 - Bij Supabase problemen: controleer eerst RLS, dan foreign key constraints, dan client configuratie.
 
 # -------------------------------
 # BONUS: UITLEG BIJ GENERATIE
 # -------------------------------
-43 - Voeg altijd een korte uitleg toe bij elke functie, component of API-route. Gebruik duidelijke comments in mensentaal om uit te leggen wat iets doet en waarvoor het bedoeld is.
+60 - Voeg altijd een korte uitleg toe bij elke functie, component of API-route. Gebruik duidelijke comments in mensentaal om uit te leggen wat iets doet en waarvoor het bedoeld is.
     Voorbeeld:
     // Deze API-route verwerkt uploads van productafbeeldingen en slaat ze tijdelijk op in de /uploads-map
 
