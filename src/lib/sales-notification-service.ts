@@ -37,4 +37,14 @@ export class SalesNotificationService {
   }
 }
 
-export const salesNotificationService = new SalesNotificationService(); 
+export const salesNotificationService = new SalesNotificationService();
+
+// Export function for achievement notifications
+export async function notifyAchievementUnlocked(userId: string, achievement: string): Promise<boolean> {
+  return salesNotificationService.sendNotification({
+    type: 'achievement',
+    title: 'Achievement Unlocked!',
+    message: `Congratulations! You've unlocked: ${achievement}`,
+    userId
+  });
+} 

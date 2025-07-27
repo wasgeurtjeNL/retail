@@ -159,4 +159,8 @@ export async function createCheckoutSession(params: Stripe.Checkout.SessionCreat
     console.error('Error creating checkout session:', error);
     throw error;
   }
-} 
+}
+
+// Export aliases for compatibility
+export const createStripeProduct = createProduct;
+export const createStripePrice = createPrice; 
