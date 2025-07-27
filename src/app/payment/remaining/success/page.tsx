@@ -1,11 +1,11 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import BackButton from '@/components/BackButton';
 
-// Success pagina voor Wasstrips restbedrag
-export default function RemainingSuccessPage() {
+// Success pagina voor Wasstrips restbedrag content
+function RemainingSuccessContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session_id');
   const paymentLink = searchParams.get('payment_link');
@@ -153,5 +153,20 @@ export default function RemainingSuccessPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RemainingSuccessPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Betaalresultaat wordt geladen...</p>
+        </div>
+      </div>
+    }>
+      <RemainingSuccessContent />
+    </Suspense>
   );
 } 
