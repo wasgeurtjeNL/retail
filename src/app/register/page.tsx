@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -46,7 +46,7 @@ interface ProspectPersonalization {
   };
 }
 
-export default function RegisterPage() {
+function RegisterPageContent() {
   const [addressValidated, setAddressValidated] = useState(false);
   const [validatedAddress, setValidatedAddress] = useState<Address | null>(null);
   const [personalization, setPersonalization] = useState<ProspectPersonalization | null>(null);
@@ -546,5 +546,20 @@ export default function RegisterPage() {
       
       <Footer />
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Registratiepagina wordt geladen...</p>
+        </div>
+      </div>
+    }>
+      <RegisterPageContent />
+    </Suspense>
   );
 } 
