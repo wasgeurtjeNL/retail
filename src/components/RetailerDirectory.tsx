@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { allRetailers, getRecentRetailers, Retailer } from '@/data/retailers';
 
-export default function RetailerDirectory() {
+function RetailerDirectoryContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -957,5 +957,22 @@ export default function RetailerDirectory() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function RetailerDirectory() {
+  return (
+    <Suspense fallback={
+      <div className="py-16 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Retailer directory wordt geladen...</p>
+          </div>
+        </div>
+      </div>
+    }>
+      <RetailerDirectoryContent />
+    </Suspense>
   );
 } 
